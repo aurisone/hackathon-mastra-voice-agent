@@ -8,27 +8,24 @@ This PoC moves the voice agent out of the terminal and into a stunning, responsi
 
 ## 🌟 Key Features
 
-1. **Auris One Clinical Light-Mode UI**:
-   - A highly premium, high-contrast, medical-grade clinical user interface designed specifically after the `aurisone.com` brand.
-   - Integrates gorgeous custom web typography (**`Open Sans`** & **`Outfit`**) with organic color design tokens (Warm Sand `#FAF7F4`, Slate Navy `#394E71`, and Periwinkle Blue `#B5C5F4`).
-2. **Auris Scribe (Diarized Visit Recorder)**:
+1. **Auris Scribe (Diarized Visit Recorder)**:
    - A specialized medical dictation module! Activated simply by speaking *"Takže Dobrý den..."*.
    - During the Scribe session, the agent stops speaking and instead performs low-latency, real-time speech diarization separating doctor and patient dialogue rows into a dedicated recording container.
    - When finished, speaking *"Tak to je konec"* triggers a structured clinical **Medical Report** and transitions the assistant back to conversation mode.
-3. **Organic Voice Assistant Orb Visualizer**:
+2. **Organic Voice Assistant Orb Visualizer**:
    - A stunning animated visualizer core that breathes, rotates, pulses, and ripples dynamically depending on the active state of the conversation (Idle, Listening, Thinking, Speaking, Scribe Recording).
    - Modulates wave scaling and drop-shadow depth in real time based on raw microphone amplitude and voice frequency data.
-4. **Live Reasoning Console (Chain of Thought)**:
+3. **Live Reasoning Console (Chain of Thought)**:
    - Gemini's internal calculation and reasoning processes are captured separately from the voice track and streamed in real time into a collapsible, light clinical monospace terminal drawer, demonstrating the model's exact "thinking process" before it speaks.
-5. **Gapless Audio Playback Queue**:
+4. **Gapless Audio Playback Queue**:
    - Audio chunks (24kHz Mono PCM) from Vertex AI are scheduled sequentially on the high-precision browser `AudioContext` timeline (`audioContext.currentTime`), preventing clicks, pops, or audio gaps.
-6. **Instant Barge-in (Interruption)**:
+5. **Instant Barge-in (Interruption)**:
    - Full support for natural interruptions! If you start speaking while the assistant is answering, the browser immediately stops all active audio playback, flushes the player queue, and updates the transcript with `[přerušeno]`, returning instantly to listening mode.
-7. **Live Dialogue Transcripts**:
+6. **Live Dialogue Transcripts**:
    - Human speech and assistant replies are rendered instantly in beautiful, fluidly appearing chat bubbles with readable typography.
-8. **Interactive Tool Card Integration**:
+7. **Interactive Tool Card Integration**:
    - Seamless server-side execution of tools (like weather retrieval `getWeather` or visit scheduling `createAurisVisit`) with custom, beautiful frontend card overlays containing live actions.
-9. **Mastra Studio & Full Observability**:
+8. **Mastra Studio & Full Observability**:
    - Centralized logging built on the official Mastra logger. All active tools are registered statically, enabling full tracing of voice agent sessions, tool schemas, and logs on port `4111`.
 
 ---
