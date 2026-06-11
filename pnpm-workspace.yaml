@@ -1,0 +1,7 @@
+allowBuilds:
+  "@ffmpeg-installer/darwin-arm64": true
+  "@google/genai": true
+  "@mastra/node-speaker": true
+  "node-mic": true
+  "protobufjs": true
+  "esbuild": true
