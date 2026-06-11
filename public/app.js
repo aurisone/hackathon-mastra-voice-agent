@@ -141,6 +141,16 @@ async function startSession() {
                     }
                     break;
 
+                case 'tool_call':
+                    // Server notified us that the model requested a tool execution
+                    handleToolCall(msg.name, msg.args, msg.id);
+                    break;
+
+                case 'tool_response':
+                    // Server completed tool execution and returned result
+                    handleToolResponse(msg.name, msg.args, msg.result);
+                    break;
+
                 case 'config_success':
                     console.log(`[WS] Speaker successfully updated to: ${msg.speaker}`);
                     break;
@@ -516,6 +526,96 @@ function handleThinkingUpdate(text) {
     // Auto-scroll console
     const container = document.getElementById('thinking-body');
     container.scrollTop = container.scrollHeight;
+}
+
+// Handle WebSocket tool call events
+function handleToolCall(name, args, id) {
+    // If it's first load, remove boilerplate text
+    const boilerplate = chatBoard.querySelector('.system-message');
+    if (boilerplate) boilerplate.remove();
+
+    // Generate unique card ID if none provided
+    const cardId = id || `tool-${Date.now()}`;
+    
+    const toolCard = document.createElement('div');
+    toolCard.className = 'tool-card-container';
+    toolCard.id = `card-${cardId}`;
+    
+    // Stringify args cleanly
+    let argsString = '';
+    if (args && typeof args === 'object') {
+        argsString = Object.entries(args).map(([k, v]) => `<strong>${k}:</strong> ${v}`).join(', ');
+    } else if (args) {
+        argsString = JSON.stringify(args);
+    }
+
+    toolCard.innerHTML = `
+        <div class="tool-card pending">
+            <div class="tool-card-header">
+                <span class="tool-icon">⚡</span>
+                <span class="tool-title">Spouštím funkci: <strong>${name}</strong></span>
+            </div>
+            <div class="tool-card-body">
+                <p class="tool-args">${argsString}</p>
+                <div class="tool-status">
+                    <span class="pulse-spinner"></span>
+                    <span class="status-text">Auris One komunikuje s externím API...</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    chatBoard.appendChild(toolCard);
+    chatBoard.scrollTop = chatBoard.scrollHeight;
+
+    // Log to the reasoning console as well
+    handleThinkingUpdate(`\n>>> [SYSTEM CALL] Spouštím nástroj: ${name} s parametry: ${JSON.stringify(args)}\n`);
+}
+
+// Handle WebSocket tool response events
+function handleToolResponse(name, args, result) {
+    // Find the pending card. If name is getWeather, we can look for any active pending cards.
+    const toolCard = chatBoard.querySelector('.tool-card.pending');
+    if (!toolCard) {
+        console.warn(`[UI] No pending tool card found to update for response from tool: ${name}`);
+        return;
+    }
+
+    toolCard.classList.remove('pending');
+    toolCard.classList.add('success');
+
+    const icon = toolCard.querySelector('.tool-icon');
+    if (icon) icon.innerText = '✅';
+
+    const statusDiv = toolCard.querySelector('.tool-status');
+    if (statusDiv) {
+        statusDiv.innerHTML = `
+            <span class="success-badge">Dokončeno úspěšně</span>
+        `;
+    }
+
+    const cardBody = toolCard.querySelector('.tool-card-body');
+    if (cardBody && name === 'getWeather') {
+        cardBody.innerHTML = `
+            <div class="weather-result-display">
+                <div class="weather-temp-block">
+                    <span class="weather-temp">${result.temperature}°C</span>
+                    <span class="weather-cond">${result.condition}</span>
+                </div>
+                <div class="weather-comment">
+                    "${result.comment}"
+                </div>
+                <div class="weather-meta">
+                    Vlhkost vzduchu: ${result.humidity}% | Připojení: Šifrované (Vertex AI SSL)
+                </div>
+            </div>
+        `;
+    }
+
+    chatBoard.scrollTop = chatBoard.scrollHeight;
+
+    // Log to the reasoning console
+    handleThinkingUpdate(`>>> [SYSTEM RESPONSE] Nástroj ${name} vrátil: ${JSON.stringify(result)}\n`);
 }
 
 function showError(message) {
