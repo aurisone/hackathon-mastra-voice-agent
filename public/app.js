@@ -12,6 +12,8 @@ const orbStatusDisplay = document.getElementById('orb-status-display');
 const connectBtn = document.getElementById('connect-btn');
 const disconnectBtn = document.getElementById('disconnect-btn');
 const speakerSelect = document.getElementById('speaker-select');
+const tempSlider = document.getElementById('temperature-slider');
+const tempValueDisplay = document.getElementById('temperature-value');
 const chatBoard = document.getElementById('chat-board');
 const thinkingConsole = document.getElementById('thinking-console');
 const clearChatBtn = document.getElementById('clear-chat-btn');
@@ -71,7 +73,8 @@ async function startSession() {
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const speaker = speakerSelect.value || 'Puck';
-    const wsUrl = `${protocol}//${window.location.host}?speaker=${speaker}`;
+    const temp = tempSlider ? tempSlider.value : '0.1';
+    const wsUrl = `${protocol}//${window.location.host}?speaker=${speaker}&temperature=${temp}`;
     
     ws = new WebSocket(wsUrl);
     
@@ -692,6 +695,24 @@ speakerSelect.addEventListener('change', () => {
     currentUserBubble = null;
     currentAssistantBubble = null;
 });
+
+// Update temperature value readout as user slides
+if (tempSlider) {
+    tempSlider.addEventListener('input', () => {
+        if (tempValueDisplay) {
+            tempValueDisplay.innerText = tempSlider.value;
+        }
+    });
+
+    // Reconnect session on change release to apply new temperature
+    tempSlider.addEventListener('change', () => {
+        if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+            console.log('[Temperature] Reconnecting session to apply new temperature...');
+            closeSession();
+            startSession();
+        }
+    });
+}
 
 clearChatBtn.addEventListener('click', () => {
     chatBoard.innerHTML = `
