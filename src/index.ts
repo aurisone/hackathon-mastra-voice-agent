@@ -57,7 +57,7 @@ app.get('/api/status', (req, res) => {
 // Manage active WebSocket clients and their respective Gemini Live Voice connections
 wss.on('connection', async (ws: WebSocket, req) => {
   const requestUrl = new URL(req.url || '', 'http://localhost');
-  const speaker = requestUrl.searchParams.get('speaker') || 'Puck';
+  const speaker = requestUrl.searchParams.get('speaker') || 'Kore';
   const temperatureStr = requestUrl.searchParams.get('temperature') || '0.1';
   const temperature = parseFloat(temperatureStr);
   
@@ -97,7 +97,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
     ws.send(JSON.stringify({
       type: 'session',
       state: 'connected',
-      speaker: 'Puck',
+      speaker: speaker,
     }));
 
     // Start speaking an initial welcome greeting

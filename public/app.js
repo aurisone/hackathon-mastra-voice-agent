@@ -79,7 +79,7 @@ async function startSession() {
     setOrbState('thinking', 'Připojování k serveru...');
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const speaker = speakerSelect.value || 'Puck';
+    const speaker = speakerSelect.value || 'Kore';
     const temp = tempSlider ? tempSlider.value : '0.1';
     const wsUrl = `${protocol}//${window.location.host}?speaker=${speaker}&temperature=${temp}`;
     
