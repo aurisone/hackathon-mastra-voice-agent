@@ -986,6 +986,89 @@ body {
     margin-top: 4px;
 }
 
+/* Auris One Visit Card styling (Verze 0.3) */
+.auris-result-display {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    animation: bubble-appear 0.5s ease-out forwards;
+}
+
+.visit-details {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.detail-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+}
+
+.detail-label {
+    color: var(--text-muted);
+}
+
+.detail-val {
+    font-weight: 600;
+}
+
+.detail-val.font-highlight {
+    background: linear-gradient(135deg, var(--secondary) 0%, var(--primary) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+/* Call to action button */
+.auris-link-btn {
+    display: block;
+    width: 100%;
+    text-align: center;
+    text-decoration: none !important;
+    background: linear-gradient(135deg, var(--secondary) 0%, #a832a4 50%, var(--primary) 100%);
+    border-radius: 8px;
+    padding: 14px 20px;
+    color: #fff !important;
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 0.5px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 4px 15px rgba(168, 50, 164, 0.4);
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease;
+    z-index: 1;
+}
+
+.auris-link-btn:hover {
+    transform: scale(1.02) translateY(-2px);
+    box-shadow: 0 8px 25px rgba(168, 50, 164, 0.6),
+                0 0 20px rgba(var(--primary-hsl), 0.4);
+}
+
+.auris-link-btn:active {
+    transform: scale(0.99) translateY(0);
+}
+
+.visit-meta {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.2);
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 10px;
+    margin-top: 4px;
+    word-break: break-all;
+}
+
+.visit-meta .url-text {
+    font-family: 'Fira Code', 'Courier New', monospace;
+    color: var(--text-muted);
+}
+
 /* Spin animation for icons */
 @keyframes spin {
     0% { transform: rotate(0deg); }

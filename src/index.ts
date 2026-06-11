@@ -27,7 +27,14 @@ Tvé chování a tón:
 2. Buď stručný a věcný. V hlasové konverzaci uživatelé nechtějí poslouchat dlouhé monology. Tvé odpovědi by měly mít ideálně 1 až 3 věty.
 3. Pokud se uživatel zeptá na počasí (např. "Jaké je počasí v Praze?"), MUSÍŠ k tomu použít svůj dostupný nástroj "getWeather". Nikdy si počasí nevymýšlej sám z hlavy!
 4. Pokud ti uživatel skočí do řeči (přeruší tě), reaguj klidně a nech ho mluvit.
+5. Máš k dispozici nástroj "createAurisVisit" pro založení nové lékařské návštěvy v aplikaci Auris One. Pokud tě uživatel požádá o založení návštěvy, spuštění nahrávání, nebo pojmenování návštěvy (např. "Založ mi novou návštěvu se zapnutým nahráváním pro pacienta Jana Nováka"), MUSÍŠ zavolat tento nástroj!
+6. Pravidla pro parametry "createAurisVisit":
+   - Pokud uživatel výslovně specifikuje "sesterská návštěva", "sesterský typ" nebo "sesterská", nastav parameter 'visitType' na hodnotu "3". Ve všech ostatních případech použij hodnotu "true".
+   - Pokud uživatel požádá o spuštění nahrávání (např. "s nahráváním", "spusť nahrávání", "začni nahrávat"), nastav parameter 'recording' na true.
+   - Pokud zmíní jméno pacienta (např. "pro Josefa Nováka", "pojmenuj ji Marie Krátká"), ulož toto jméno do parametru 'patientName'.
+   Po úspěšném vykonání nástroje uživateli stručně a přátelsky oznam, že návštěva byla založena a na obrazovce se mu objevilo velké tlačítko pro okamžité spuštění aplikace.
 `;
+
 
 const project = process.env.GCP_PROJECT || 'auris-app-dev';
 const location = process.env.GCP_LOCATION || 'europe-west4';
@@ -106,6 +113,67 @@ wss.on('connection', async (ws: WebSocket, req) => {
     },
   });
 
+  // Define createAurisVisit tool inside connection block to capture 'ws' in closure
+  const createAurisVisitTool = createTool({
+    id: 'createAurisVisit',
+    description: 'Založí novou lékařskou návštěvu v aplikaci Auris One na základě zadaných parametrů (např. spuštěné nahrávání, jméno pacienta, typ návštěvy).',
+    inputSchema: z.object({
+      visitType: z.string().optional().default('true').describe('ID nebo typ návštěvy. Výchozí je "true" (poslední použitá). Pro sesterskou návštěvu nastav "3".'),
+      recording: z.boolean().optional().default(false).describe('Zda má být v aplikaci automaticky zahájeno nahrávání (true/false).'),
+      patientName: z.string().optional().describe('Jméno pacienta, kterým se má nově vytvořená návštěva pojmenovat.'),
+    }),
+    outputSchema: z.object({
+      url: z.string(),
+      visitType: z.string(),
+      recording: z.boolean(),
+      patientName: z.string().optional(),
+      message: z.string(),
+    }),
+    execute: async ({ visitType, recording, patientName }) => {
+      console.log(`[Tool: createAurisVisit] Building URL: visitType=${visitType}, recording=${recording}, patientName=${patientName}`);
+      
+      const baseUrl = 'https://app.auris.one/?';
+      const params: string[] = [];
+
+      // Add new-visit parameter
+      const resolvedVisitType = visitType || 'true';
+      params.push(`new-visit=${resolvedVisitType}`);
+
+      // Add recording if true
+      if (recording) {
+        params.push('recording=true');
+      }
+
+      // Add patient name if provided
+      if (patientName && patientName.trim()) {
+        params.push(`visit-name=${encodeURIComponent(patientName.trim())}`);
+      }
+
+      const generatedUrl = baseUrl + params.join('&');
+      console.log(`[Tool: createAurisVisit] Generated Deep Link: ${generatedUrl}`);
+
+      const result = {
+        url: generatedUrl,
+        visitType: resolvedVisitType,
+        recording: !!recording,
+        patientName: patientName || undefined,
+        message: 'Návštěva byla úspěšně připravena k založení v aplikaci Auris One.',
+      };
+
+      // Notify the specific client WebSocket immediately of the completed tool execution
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'tool_response',
+          name: 'createAurisVisit',
+          args: { visitType, recording, patientName },
+          result,
+        }));
+      }
+
+      return result;
+    },
+  });
+
   // Initialize a dedicated Gemini Live Voice instance for this client
   const voice = new GeminiLiveVoice({
     vertexAI: true,
@@ -117,8 +185,11 @@ wss.on('connection', async (ws: WebSocket, req) => {
     debug: true,
   } as any) as any;
 
-  // Add the weather tool and enforce instructions
-  voice.addTools({ getWeather: weatherTool });
+  // Add the tools and enforce instructions
+  voice.addTools({
+    getWeather: weatherTool,
+    createAurisVisit: createAurisVisitTool,
+  });
   voice.addInstructions(aurisSystemPrompt);
 
   let isConnected = false;

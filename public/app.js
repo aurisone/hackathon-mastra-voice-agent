@@ -610,6 +610,38 @@ function handleToolResponse(name, args, result) {
                 </div>
             </div>
         `;
+    } else if (cardBody && name === 'createAurisVisit') {
+        const visitLabel = result.visitType === '3' ? 'Sesterská návštěva (ID 3)' : 'Běžná návštěva (Výchozí)';
+        const recordingLabel = result.recording ? 'Zahájit nahrávání (Aktivní 🎙️)' : 'Bez nahrávání';
+        const nameLabel = result.patientName ? result.patientName : 'Nepojmenováno';
+
+        cardBody.innerHTML = `
+            <div class="auris-result-display">
+                <div class="visit-details">
+                    <div class="detail-row">
+                        <span class="detail-label">Typ návštěvy:</span>
+                        <span class="detail-val font-highlight">${visitLabel}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Jméno pacienta:</span>
+                        <span class="detail-val font-highlight">${nameLabel}</span>
+                    </div>
+                    <div class="detail-row">
+                        <span class="detail-label">Nahrávání v aplikaci:</span>
+                        <span class="detail-val font-highlight">${recordingLabel}</span>
+                    </div>
+                </div>
+                
+                <a href="${result.url}" target="_blank" class="auris-link-btn">
+                    <span class="btn-glow-effect"></span>
+                    <span class="btn-text">Spustit Auris One ➔</span>
+                </a>
+                
+                <div class="visit-meta">
+                    <strong>Hluboký odkaz:</strong> <span class="url-text">${result.url}</span>
+                </div>
+            </div>
+        `;
     }
 
     chatBoard.scrollTop = chatBoard.scrollHeight;
