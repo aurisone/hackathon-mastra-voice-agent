@@ -102,7 +102,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
     // Start speaking an initial welcome greeting
     logger.info('[Server] Speaking initial greeting...');
-    await voice.speak('Ahoj! Jsem Auris One, tvůj inteligentní tichý zapisovatel a hlasový asistent. Jak ti mohu dnes pomoct?');
+    await voice.speak('Ahoj! Jsem Auris One, tvá inteligentní tichá zapisovatelka a AI asistentka. Jak ti mohu dnes pomoct?');
 
   } catch (error: any) {
     logger.error('[Server] Failed to connect to Gemini Live API:', error);
