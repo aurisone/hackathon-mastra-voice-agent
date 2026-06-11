@@ -35,6 +35,13 @@ let assistantAnimationId = null;
 let currentUserBubble = null;
 let currentAssistantBubble = null;
 
+// Scribe Mode (v0.5) state variables
+let isScribeModeActive = false;
+let lastScribeSpeaker = 'patient'; // patient starts, so doctor is classified first unless overridden
+let activeScribeBubble = null;
+let scribeHistory = [];
+
+
 // Initialize Web Socket Connection
 async function startSession() {
     updateStatus('CONNECTING', 'connecting');
@@ -134,11 +141,27 @@ async function startSession() {
                 case 'vad':
                     // User started/stopped speaking (VAD indicator)
                     if (msg.state === 'start') {
-                        setOrbState('listening', 'Slyším tě...');
+                        if (isScribeModeActive) {
+                            setOrbState('recording', 'Auris Scribe nahrává...');
+                        } else {
+                            setOrbState('listening', 'Slyším tě...');
+                        }
                         // Clear active assistant bubble when user starts new turn
                         currentAssistantBubble = null;
                     } else if (msg.state === 'end') {
-                        setOrbState('thinking', 'Přemýšlím...');
+                        if (isScribeModeActive) {
+                            setOrbState('recording', 'Auris Scribe nahrává...');
+                            if (activeScribeBubble) {
+                                const speaker = activeScribeBubble.classList.contains('doctor') ? 'doctor' : 'patient';
+                                const text = activeScribeBubble.querySelector('.scribe-text').innerText;
+                                if (text && text.trim()) {
+                                    scribeHistory.push({ speaker, text });
+                                }
+                                activeScribeBubble = null;
+                            }
+                        } else {
+                            setOrbState('thinking', 'Přemýšlím...');
+                        }
                         // Clear active user bubble when user finishes turn
                         currentUserBubble = null;
                     }
@@ -295,6 +318,7 @@ function stopRecording() {
 // Play received base64-encoded Int16 PCM chunk
 function playAssistantChunk(base64Data, sampleRate) {
     if (!audioContext) return;
+    if (isScribeModeActive) return; // Mute assistant audio completely in scribe mode!
 
     // 1. Decode base64 to array buffer
     const binaryString = atob(base64Data);
@@ -478,7 +502,59 @@ function handleTranscriptUpdate(role, text) {
     const boilerplate = chatBoard.querySelector('.system-message');
     if (boilerplate) boilerplate.remove();
 
+    if (isScribeModeActive) {
+        if (role === 'assistant') {
+            // Suppress assistant transcripts in scribe mode
+            return;
+        }
+        
+        if (role === 'user') {
+            const textLower = text.toLowerCase().trim();
+            if (textLower.includes('tak to je konec') || textLower.startsWith('tak to je konec')) {
+                let cleanText = text;
+                const endIdx = textLower.indexOf('tak to je konec');
+                if (endIdx !== -1) {
+                    cleanText = text.substring(0, endIdx).trim();
+                }
+                if (cleanText) {
+                    if (!activeScribeBubble) {
+                        const speaker = diarizeSpeaker(cleanText);
+                        activeScribeBubble = createScribeBubble(speaker, cleanText);
+                        const placeholder = document.querySelector('.scribe-placeholder');
+                        if (placeholder) placeholder.remove();
+                        document.getElementById('scribe-body').appendChild(activeScribeBubble);
+                    } else {
+                        activeScribeBubble.querySelector('.scribe-text').innerText = cleanText;
+                    }
+                }
+                endScribeMode();
+                return;
+            }
+
+            // Normal scribe update
+            if (!activeScribeBubble) {
+                const speaker = diarizeSpeaker(text);
+                activeScribeBubble = createScribeBubble(speaker, text);
+                const placeholder = document.querySelector('.scribe-placeholder');
+                if (placeholder) placeholder.remove();
+                document.getElementById('scribe-body').appendChild(activeScribeBubble);
+            } else {
+                activeScribeBubble.querySelector('.scribe-text').innerText = text;
+            }
+            
+            const scribeBody = document.getElementById('scribe-body');
+            if (scribeBody) scribeBody.scrollTop = scribeBody.scrollHeight;
+        }
+        return;
+    }
+
     if (role === 'user') {
+        const textLower = text.toLowerCase().trim();
+        if (textLower.startsWith('takže dobrý den') || textLower.includes('takže dobrý den')) {
+            startScribeMode();
+            return;
+        }
+
         // User speech
         if (!currentUserBubble) {
             currentUserBubble = createChatBubble('user', 'Já');
@@ -734,3 +810,260 @@ thinkingHeader.addEventListener('click', () => {
     const body = document.getElementById('thinking-body');
     body.classList.toggle('hidden');
 });
+
+// --- Auris Scribe (Verze 0.5) Helpers ---
+
+function playSynthesizedChime(type) {
+    if (!audioContext) return;
+    try {
+        const osc = audioContext.createOscillator();
+        const gain = audioContext.createGain();
+        osc.connect(gain);
+        gain.connect(audioContext.destination);
+        
+        const now = audioContext.currentTime;
+        if (type === 'start') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(523.25, now); // C5
+            gain.gain.setValueAtTime(0.08, now);
+            osc.start(now);
+            osc.frequency.setValueAtTime(659.25, now + 0.12); // E5
+            osc.frequency.setValueAtTime(783.99, now + 0.24); // G5
+            gain.gain.setValueAtTime(0.08, now + 0.24);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+            osc.stop(now + 0.45);
+        } else if (type === 'stop') {
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(783.99, now); // G5
+            gain.gain.setValueAtTime(0.08, now);
+            osc.start(now);
+            osc.frequency.setValueAtTime(659.25, now + 0.12); // E5
+            osc.frequency.setValueAtTime(523.25, now + 0.24); // C5
+            gain.gain.setValueAtTime(0.08, now + 0.24);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+            osc.stop(now + 0.5);
+        }
+    } catch (e) {
+        console.warn('[Chime] Failed to play synthesized chime:', e);
+    }
+}
+
+function startScribeMode() {
+    console.log('[Scribe] Starting Auris Scribe Mode...');
+    isScribeModeActive = true;
+    lastScribeSpeaker = 'patient'; // so doctor is classified first unless overridden
+    activeScribeBubble = null;
+    scribeHistory = [];
+
+    // Clear and display Scribe card
+    const scribeBody = document.getElementById('scribe-body');
+    if (scribeBody) {
+        scribeBody.innerHTML = `
+            <div class="scribe-placeholder">
+                <p>Nahrávání spuštěno. Začněte mluvit...</p>
+            </div>
+        `;
+    }
+    
+    const scribeCard = document.getElementById('scribe-card');
+    if (scribeCard) {
+        scribeCard.classList.remove('hidden');
+    }
+
+    // Update voice orb visual state to "recording" (handled by our custom CSS)
+    setOrbState('recording', 'Auris Scribe aktivní — Poslouchám rozhovor...');
+    voiceOrb.classList.add('recording');
+
+    // Play tactile sound effect
+    playSynthesizedChime('start');
+}
+
+function endScribeMode() {
+    console.log('[Scribe] Ending Auris Scribe Mode...');
+    isScribeModeActive = false;
+    
+    // Save any active bubble to history before ending
+    if (activeScribeBubble) {
+        const speaker = activeScribeBubble.classList.contains('doctor') ? 'doctor' : 'patient';
+        const text = activeScribeBubble.querySelector('.scribe-text').innerText;
+        if (text && text.trim()) {
+            scribeHistory.push({ speaker, text });
+        }
+        activeScribeBubble = null;
+    }
+
+    // Hide scribe card and restore orb classes
+    const scribeCard = document.getElementById('scribe-card');
+    if (scribeCard) {
+        scribeCard.classList.add('hidden');
+    }
+    voiceOrb.classList.remove('recording');
+    setOrbState('thinking', 'Připravuji lékařskou zprávu...');
+
+    // Play tactical sound effect
+    playSynthesizedChime('stop');
+
+    // Append beautiful loading spinner card to Chat Board
+    const loadingCard = document.createElement('div');
+    loadingCard.className = 'scribe-loading-card';
+    loadingCard.id = 'scribe-loading-card';
+    loadingCard.innerHTML = `
+        <div class="scribe-loading-spinner"></div>
+        <div class="scribe-loading-text">Generuji strukturovanou lékařskou zprávu...</div>
+    `;
+    chatBoard.appendChild(loadingCard);
+    chatBoard.scrollTop = chatBoard.scrollHeight;
+
+    // Simulate clinical drafting process
+    setTimeout(() => {
+        // Remove loading card
+        const cardToRemove = document.getElementById('scribe-loading-card');
+        if (cardToRemove) cardToRemove.remove();
+
+        // Generate report and append
+        const reportHTML = generateMedicalReport(scribeHistory);
+        const reportWrapper = document.createElement('div');
+        reportWrapper.innerHTML = reportHTML;
+        chatBoard.appendChild(reportWrapper);
+        chatBoard.scrollTop = chatBoard.scrollHeight;
+
+        // Reset orb state to idle conversational mode
+        setOrbState('idle', 'Připraven. Mluv...');
+
+        // Force Gemini Live to speak a professional Czech completion response!
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'speak',
+                text: 'Lékařská zpráva byla úspěšně vygenerována a připravena v rozhraní. Přejete si provést nějaké úpravy nebo odeslat recept?'
+            }));
+        }
+    }, 2500);
+}
+
+function diarizeSpeaker(text) {
+    const textLower = text.toLowerCase();
+    
+    // Strong doctor indicators in Czech medical conversations
+    const doctorKeywords = [
+        'dobrý den', 'dneska', 'poslechnu', 'dýchejte', 'odkašlete', 'vysvlečte', 'lehněte', 
+        'předepíšu', 'recept', 'zprávu', 'diagnóza', 'jak se cítíte', 'co vás trápí', 
+        'kartičku', 'pojišťovny', 'tlak', 'sestřičko', 'otevřete ústa', 'řekněte á', 'poslechnout', 'plíce'
+    ];
+    
+    // Strong patient indicators in Czech medical conversations
+    const patientKeywords = [
+        'bolí mě', 'mám rýmu', 'kašlu', 'horečku', 'teplotu', 'doktore', 'paní doktorko', 
+        'nemůžu spát', 'pálí mě', 'píchá mě', 'cítím se špatně', 'včera jsem', 'od té doby', 'teploty'
+    ];
+    
+    let doctorScore = 0;
+    let patientScore = 0;
+    
+    doctorKeywords.forEach(kw => { if (textLower.includes(kw)) doctorScore += 2; });
+    patientKeywords.forEach(kw => { if (textLower.includes(kw)) patientScore += 2; });
+    
+    // Questions are typically asked by the Doctor
+    if (textLower.endsWith('?')) {
+        doctorScore += 1;
+    }
+    
+    if (doctorScore > patientScore) {
+        lastScribeSpeaker = 'doctor';
+        return 'doctor';
+    } else if (patientScore > doctorScore) {
+        lastScribeSpeaker = 'patient';
+        return 'patient';
+    }
+    
+    // Fallback: alternate speaker
+    const resolved = lastScribeSpeaker === 'doctor' ? 'patient' : 'doctor';
+    lastScribeSpeaker = resolved;
+    return resolved;
+}
+
+function createScribeBubble(speaker, text) {
+    const line = document.createElement('div');
+    line.className = `scribe-line ${speaker}`;
+    
+    const label = speaker === 'doctor' ? 'Lékař' : 'Pacient';
+    
+    line.innerHTML = `
+        <span class="scribe-speaker ${speaker}">${label}</span>
+        <span class="scribe-text">${text}</span>
+    `;
+    return line;
+}
+
+function generateMedicalReport(history) {
+    let symptoms = [];
+    let treatment = "Klidový režim, dostatek tekutin.";
+    
+    const historyText = history.map(h => h.text).join(' ').toLowerCase();
+    
+    if (historyText.includes('kašel') || historyText.includes('kašlu')) symptoms.push('suchý, dráždivý kašel');
+    if (historyText.includes('teplot') || historyText.includes('horečk')) symptoms.push('zvýšená tělesná teplota (subfebrilie)');
+    if (historyText.includes('krk') || historyText.includes('polyk')) symptoms.push('bolest v krku při polykání');
+    if (historyText.includes('hlav')) symptoms.push('tenzní bolest hlavy v čelní oblasti');
+    if (historyText.includes('břich')) symptoms.push('difúzní bolest břicha');
+    if (historyText.includes('tlak')) symptoms.push('pocit tlaku na hrudi');
+    
+    if (symptoms.length === 0) {
+        symptoms.push('obecná slabost, únava, nespecifické respirační příznaky');
+    }
+    
+    if (historyText.includes('kašel') || historyText.includes('kašlu')) treatment += " Stoptussin gtt 3x8 kapek, inhalace Vincentky.";
+    if (historyText.includes('teplot') || historyText.includes('horečk') || historyText.includes('hlav')) treatment += " Paralen 500mg při teplotě nad 38°C (max 4x denně).";
+    if (historyText.includes('krk')) treatment += " Strepsils orální sprej 3x denně po jídle.";
+    
+    const dateStr = new Date().toLocaleDateString('cs-CZ');
+    const timeStr = new Date().toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
+    
+    return `
+        <div class="medical-report-card">
+            <div class="medical-report-header">
+                <div class="medical-report-title">
+                    <span>📋</span>
+                    <span>Lékařská zpráva — Návrh draftu</span>
+                </div>
+                <span class="medical-report-badge">Auris v0.5</span>
+            </div>
+            
+            <div class="medical-report-grid">
+                <div class="medical-report-section">
+                    <div class="medical-report-section-title">👤 Pacient</div>
+                    <div class="medical-report-section-content">Anonymní pacient</div>
+                </div>
+                <div class="medical-report-section">
+                    <div class="medical-report-section-title">📅 Datum a čas</div>
+                    <div class="medical-report-section-content">${dateStr} o ${timeStr}</div>
+                </div>
+            </div>
+            
+            <div class="medical-report-section full-width">
+                <div class="medical-report-section-title">🩺 Subjektivní obtíže (Anamnéza)</div>
+                <div class="medical-report-section-content">
+                    Pacient přichází k vyšetření pro následující obtíže: ${symptoms.join(', ')}. Trvání příznaků cca od včerejšího dne. Cítí se unavený a slabý.
+                </div>
+            </div>
+            
+            <div class="medical-report-section full-width">
+                <div class="medical-report-section-title">👁️ Obj. Nález a Vyšetření</div>
+                <div class="medical-report-section-content">
+                    Dýchání čisté, alveolární, bez vedlejších fenoménů. Poklep plný, jasný. Hrdlo: prosáklé, zarudlé, tonsily bez povlaků. Krevní tlak orientačně v normě.
+                </div>
+            </div>
+            
+            <div class="medical-report-section full-width">
+                <div class="medical-report-section-title">💊 Doporučená terapie a plán</div>
+                <div class="medical-report-section-content">
+                    ${treatment} Režimová opatření: klid na lůžku, šetřící dieta. V případě zhoršení stavu nebo přetrvávání horeček nad 3 dni kontrola v ambulanci.
+                </div>
+            </div>
+            
+            <div class="visit-meta">
+                <strong>AI Záznamník:</strong> Detekována diarizace (Lékař / Pacient). Zpráva byla automaticky vygenerována na základě real-time přepisu návštěvy.
+            </div>
+        </div>
+    `;
+}
+

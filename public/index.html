@@ -19,7 +19,7 @@
         <header class="app-header">
             <div class="logo">
                 <span class="logo-accent">Auris</span>Voice
-                <span class="badge">PoC v0.4</span>
+                <span class="badge">PoC v0.5</span>
             </div>
             <div class="status-panel">
                 <span class="status-label">Status:</span>
@@ -111,6 +111,22 @@
             <!-- Right Panel: Transcription Board & Live Reasoning Drawer -->
             <section class="panel-right">
                 
+                <!-- Auris Scribe Panel (Verze 0.5) -->
+                <div class="card scribe-card hidden" id="scribe-card">
+                    <div class="card-header">
+                        <div class="header-title">
+                            <span class="recording-indicator-dot pulsing"></span>
+                            <h2>Auris Scribe — Záznam návštěvy</h2>
+                        </div>
+                        <span class="badge-scribe">Nahrávání aktivní 🎙️</span>
+                    </div>
+                    <div id="scribe-body" class="scribe-body">
+                        <div class="scribe-placeholder">
+                            <p>Rozhovor lékaře s pacientem se bude zapisovat sem v reálném čase...</p>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Chat Transcript -->
                 <div class="card chat-card">
                     <div class="card-header">
