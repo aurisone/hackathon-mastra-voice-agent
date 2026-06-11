@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auris Voice — Real-time Gemini 2.5 Voice Agent</title>
+    <meta name="description" content="A real-time Speech-to-Speech voice agent PoC powered by Mastra, Express, WebSockets, and Google Vertex AI.">
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="glass-bg"></div>
+    <div class="app-container">
+        
+        <!-- Header Section -->
+        <header class="app-header">
+            <div class="logo">
+                <span class="logo-accent">Auris</span>Voice
+                <span class="badge">PoC v1.0</span>
+            </div>
+            <div class="status-panel">
+                <span class="status-label">Status:</span>
+                <div id="status-badge" class="status-badge disconnected">
+                    <span class="status-dot"></span>
+                    <span id="status-text">DISCONNECTED</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Workspace -->
+        <main class="app-main">
+            
+            <!-- Left Panel: Interactive Visualizer & Controls -->
+            <section class="panel-left">
+                <div class="card visualizer-card">
+                    <div class="card-header">
+                        <h2>Voice Assistant</h2>
+                        <p class="subtitle">Mluv a poslouchej v reálném čase</p>
+                    </div>
+                    
+                    <div class="orb-container">
+                        <!-- Dual glow layers for depth -->
+                        <div id="orb-glow-outer" class="orb-glow-outer idle"></div>
+                        <div id="orb-glow-inner" class="orb-glow-inner idle"></div>
+                        <div id="voice-orb" class="voice-orb idle">
+                            <div class="orb-core"></div>
+                            <!-- Dynamic wave ripples -->
+                            <div class="orb-ripple ripple-1"></div>
+                            <div class="orb-ripple ripple-2"></div>
+                        </div>
+                        <div id="orb-status-display" class="orb-status-display">Klikni na Připojit</div>
+                    </div>
+
+                    <div class="controls-area">
+                        <button id="connect-btn" class="btn btn-primary">
+                            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                                <path d="M19 10v1a7 7 0 0 1-14 0v-1"/>
+                                <line x1="12" x2="12" y1="19" y2="22"/>
+                            </svg>
+                            <span>Připojit & Spustit</span>
+                        </button>
+                        
+                        <button id="disconnect-btn" class="btn btn-danger hidden">
+                            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" x2="6" y1="6" y2="18"/>
+                                <line x1="6" x2="18" y1="6" y2="18"/>
+                            </svg>
+                            <span>Ukončit relaci</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card settings-card">
+                    <div class="card-header">
+                        <h3>Konfigurace Agentky</h3>
+                    </div>
+                    <div class="settings-grid">
+                        <div class="settings-group">
+                            <label for="speaker-select">Hlas (Speaker):</label>
+                            <div class="select-wrapper">
+                                <select id="speaker-select" class="form-select">
+                                    <option value="Puck" selected>Puck (Mužský, energičtější)</option>
+                                    <option value="Aoede">Aoede (Ženský, klidnější)</option>
+                                    <option value="Charon">Charon (Mužský, vážnější)</option>
+                                    <option value="Fenrir">Fenrir (Hluboký, severský)</option>
+                                    <option value="Kore">Kore (Ženský, vřelý)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="settings-group">
+                            <label>Model:</label>
+                            <input type="text" class="form-input" value="Gemini Live 2.5 Flash" readonly disabled>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Right Panel: Transcription Board & Live Reasoning Drawer -->
+            <section class="panel-right">
+                
+                <!-- Chat Transcript -->
+                <div class="card chat-card">
+                    <div class="card-header">
+                        <h2>Přepis konverzace</h2>
+                        <div class="card-actions">
+                            <button id="clear-chat-btn" class="btn-text">Vymazat historii</button>
+                        </div>
+                    </div>
+                    <div id="chat-board" class="chat-board">
+                        <div class="system-message">
+                            <p>Zde se zobrazí přepis konverzace v reálném čase. Klikni na tlačítko "Připojit", povol mikrofon a začni mluvit.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CoT / Thinking Console -->
+                <div class="card reasoning-card">
+                    <div class="card-header collapsible-trigger" id="thinking-header">
+                        <div class="header-title">
+                            <svg class="icon icon-spark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364-6.364l-.707.707M6.343 17.657l-.707.707m0-12.728l.707.707m11.32 11.32l.707-.707M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"/>
+                            </svg>
+                            <h2>Myšlenkové pochody (Reasoning)</h2>
+                        </div>
+                        <span class="badge-thinking">Chain of Thought</span>
+                    </div>
+                    <div id="thinking-body" class="thinking-body">
+                        <pre id="thinking-console" class="thinking-console">Čekám na zahájení myšlení modelu...</pre>
+                    </div>
+                </div>
+
+            </section>
+            
+        </main>
+        
+        <footer class="app-footer">
+            <p>Auris Voice STS PoC — Postaveno na platformě Mastra & Vertex AI. Regional Endpoint: europe-west4.</p>
+        </footer>
+    </div>
+    <!-- Client Controller -->
+    <script src="app.js" defer></script>
+</body>
+</html>
