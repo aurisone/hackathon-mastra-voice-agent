@@ -2,15 +2,17 @@ import express from 'express';
 import { createServer } from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { GeminiLiveVoice } from '@mastra/voice-google-gemini-live';
-import { createTool } from '@mastra/core/tools';
-import { z } from 'zod';
 import dotenv from 'dotenv';
 import path from 'path';
 import { aurisSystemPrompt } from './prompt.js';
 
+// Import Mastra components and tools
+import { mastra } from './mastra/index.js';
+import { setActiveWs } from './mastra/session.js';
+import { weatherTool, createAurisVisitTool, setToolsLogger } from './mastra/tools.js';
+
 // Load environment variables from .env file
 dotenv.config();
-
 
 const project = process.env.GCP_PROJECT || 'auris-app-dev';
 const location = process.env.GCP_LOCATION || 'europe-west4';
@@ -21,13 +23,19 @@ if (!project) {
   process.exit(1);
 }
 
-console.log('=========================================================');
-console.log('Starting Mastra Speech-to-Speech (STS) Web Server');
-console.log(` - GCP Project:  ${project}`);
-console.log(` - GCP Location: ${location}`);
-console.log(` - Model:        gemini-live-2.5-flash-native-audio`);
-console.log(` - Web App URL:  http://localhost:${PORT}`);
-console.log('=========================================================');
+// Get the mastra logger instance for full logging inside Mastra Studio
+const logger = mastra.getLogger();
+
+// Wire up the central logger to the tools module
+setToolsLogger(logger);
+
+logger.info('=========================================================');
+logger.info('Starting Mastra Speech-to-Speech (STS) Web Server');
+logger.info(` - GCP Project:  ${project}`);
+logger.info(` - GCP Location: ${location}`);
+logger.info(` - Model:        gemini-live-2.5-flash-native-audio`);
+logger.info(` - Web App URL:  http://localhost:${PORT}`);
+logger.info('=========================================================');
 
 const app = express();
 const server = createServer(app);
@@ -52,105 +60,11 @@ wss.on('connection', async (ws: WebSocket, req) => {
   const speaker = requestUrl.searchParams.get('speaker') || 'Puck';
   const temperatureStr = requestUrl.searchParams.get('temperature') || '0.1';
   const temperature = parseFloat(temperatureStr);
-  console.log(`[Server] New client connected. Spawning voice agent session with speaker: ${speaker}, temperature: ${temperature}...`);
+  
+  // Set the active WebSocket session for tools to publish updates
+  setActiveWs(ws);
 
-  // Define weather tool inside the connection block to capture this client's specific socket 'ws'
-  const weatherTool = createTool({
-    id: 'getWeather',
-    description: 'Získá aktuální počasí pro zadané město či lokalitu.',
-    inputSchema: z.object({
-      location: z.string().describe('Název města nebo lokality, pro kterou zjišťuješ počasí (např. "Praha", "Brno")'),
-    }),
-    outputSchema: z.object({
-      temperature: z.number(),
-      condition: z.string(),
-      humidity: z.number(),
-      comment: z.string(),
-    }),
-    execute: async ({ location }) => {
-      console.log(`[Tool: getWeather] Executing mock weather tool for "${location}"`);
-      
-      const result = {
-        temperature: 20,
-        condition: 'Slunečno a bezvětří',
-        humidity: 45,
-        comment: `Ať jsi v lokalitě ${location} nebo kdekoli jinde, v Auris One je vždy krásných 20 stupňů a slunečno!`,
-      };
-
-      // Notify the specific client WebSocket immediately that the tool completed execution
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'tool_response',
-          name: 'getWeather',
-          args: { location },
-          result,
-        }));
-      }
-
-      return result;
-    },
-  });
-
-  // Define createAurisVisit tool inside connection block to capture 'ws' in closure
-  const createAurisVisitTool = createTool({
-    id: 'createAurisVisit',
-    description: 'Založí novou lékařskou návštěvu v aplikaci Auris One na základě zadaných parametrů (např. spuštěné nahrávání, jméno pacienta, typ návštěvy).',
-    inputSchema: z.object({
-      visitType: z.string().optional().default('true').describe('ID nebo typ návštěvy. Výchozí je "true" (poslední použitá). Pro sesterskou návštěvu nastav "3".'),
-      recording: z.boolean().optional().default(false).describe('Zda má být v aplikaci automaticky zahájeno nahrávání (true/false).'),
-      patientName: z.string().optional().describe('Jméno pacienta, kterým se má nově vytvořená návštěva pojmenovat.'),
-    }),
-    outputSchema: z.object({
-      url: z.string(),
-      visitType: z.string(),
-      recording: z.boolean(),
-      patientName: z.string().optional(),
-      message: z.string(),
-    }),
-    execute: async ({ visitType, recording, patientName }) => {
-      console.log(`[Tool: createAurisVisit] Building URL: visitType=${visitType}, recording=${recording}, patientName=${patientName}`);
-      
-      const baseUrl = 'https://app.auris.one/?';
-      const params: string[] = [];
-
-      // Add new-visit parameter
-      const resolvedVisitType = visitType || 'true';
-      params.push(`new-visit=${resolvedVisitType}`);
-
-      // Add recording if true
-      if (recording) {
-        params.push('recording=true');
-      }
-
-      // Add patient name if provided
-      if (patientName && patientName.trim()) {
-        params.push(`visit-name=${encodeURIComponent(patientName.trim())}`);
-      }
-
-      const generatedUrl = baseUrl + params.join('&');
-      console.log(`[Tool: createAurisVisit] Generated Deep Link: ${generatedUrl}`);
-
-      const result = {
-        url: generatedUrl,
-        visitType: resolvedVisitType,
-        recording: !!recording,
-        patientName: patientName || undefined,
-        message: 'Návštěva byla úspěšně připravena k založení v aplikaci Auris One.',
-      };
-
-      // Notify the specific client WebSocket immediately of the completed tool execution
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'tool_response',
-          name: 'createAurisVisit',
-          args: { visitType, recording, patientName },
-          result,
-        }));
-      }
-
-      return result;
-    },
-  });
+  logger.info(`[Server] New client connected. Spawning voice agent session with speaker: ${speaker}, temperature: ${temperature}...`);
 
   // Initialize a dedicated Gemini Live Voice instance for this client
   const voice = new GeminiLiveVoice({
@@ -174,10 +88,10 @@ wss.on('connection', async (ws: WebSocket, req) => {
   let isConnected = false;
 
   try {
-    console.log('[Server] Connecting to Gemini Live API...');
+    logger.info('[Server] Connecting to Gemini Live API...');
     await voice.connect();
     isConnected = true;
-    console.log('[Server] Connected successfully to Gemini Live API!');
+    logger.info('[Server] Connected successfully to Gemini Live API!');
 
     // Notify client that the voice session is connected and ready
     ws.send(JSON.stringify({
@@ -187,11 +101,11 @@ wss.on('connection', async (ws: WebSocket, req) => {
     }));
 
     // Start speaking an initial welcome greeting
-    console.log('[Server] Speaking initial greeting...');
+    logger.info('[Server] Speaking initial greeting...');
     await voice.speak('Ahoj! Jsem Auris One, tvůj inteligentní tichý zapisovatel a hlasový asistent. Jak ti mohu dnes pomoct?');
 
   } catch (error: any) {
-    console.error('[Server] Failed to connect to Gemini Live API:', error);
+    logger.error('[Server] Failed to connect to Gemini Live API:', error);
     ws.send(JSON.stringify({
       type: 'error',
       message: 'Failed to connect to Vertex AI: ' + (error.message || error),
@@ -216,6 +130,8 @@ wss.on('connection', async (ws: WebSocket, req) => {
   // 2. Transcription responses (User/Assistant spoken text)
   voice.on('writing', ({ text, role }: any) => {
     if (text && text.trim() && ws.readyState === WebSocket.OPEN) {
+      // Log transcript to Mastra logger so it's fully inspectable in Mastra Studio
+      logger.info(`[Voice Transcript] ${role}: ${text}`);
       ws.send(JSON.stringify({
         type: 'transcript',
         text,
@@ -227,6 +143,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
   // 3. Chain of Thought / Reasoning reasoning text
   voice.on('thinking', ({ text }: any) => {
     if (text && text.trim() && ws.readyState === WebSocket.OPEN) {
+      logger.info(`[Voice Thinking] ${text}`);
       ws.send(JSON.stringify({
         type: 'thinking',
         text,
@@ -236,7 +153,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
   // 4. Interrupts (Barge-in: client spoke over the assistant)
   voice.on('interrupt', (data: any) => {
-    console.log('[Server] User interrupted assistant speaking!');
+    logger.info('[Server] User interrupted assistant speaking!');
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         type: 'interrupt',
@@ -257,7 +174,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
   // 6. Voice Errors
   voice.on('error', (err: any) => {
-    console.error('[Server] Gemini Live Voice Error:', err);
+    logger.error('[Server] Gemini Live Voice Error:', err);
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         type: 'error',
@@ -268,7 +185,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
   // 7. Tool calls (model decided to invoke an external skill)
   voice.on('toolCall', (data: any) => {
-    console.log(`[Server] Model requested tool: ${data.name}`, data.args);
+    logger.info(`[Server] Model requested tool: ${data.name}`, data.args);
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         type: 'tool_call',
@@ -296,38 +213,39 @@ wss.on('connection', async (ws: WebSocket, req) => {
       } else {
         // Handle incoming JSON text messages
         const data = JSON.parse(message.toString());
-        console.log('[Server] Received command:', data);
+        logger.info('[Server] Received command:', data);
 
         if (data.type === 'config' && data.speaker) {
-          console.log(`[Server] Speaker config requested: ${data.speaker} (reconnecting client will handle this instead of updateSessionConfig)`);
+          logger.info(`[Server] Speaker config requested: ${data.speaker} (reconnecting client will handle this instead of updateSessionConfig)`);
           ws.send(JSON.stringify({
             type: 'config_success',
             speaker: data.speaker,
           }));
         } else if (data.type === 'speak' && data.text) {
-          console.log(`[Server] Client forced TTS: "${data.text}"`);
+          logger.info(`[Server] Client forced TTS: "${data.text}"`);
           await voice.speak(data.text);
         }
       }
     } catch (err: any) {
-      console.error('[Server] Error handling client WebSocket message:', err);
+      logger.error('[Server] Error handling client WebSocket message:', err);
     }
   });
 
   // Clean up Mastra session on socket close
   ws.on('close', async () => {
-    console.log('[Server] Client disconnected. Terminating voice session...');
+    logger.info('[Server] Client disconnected. Terminating voice session...');
+    setActiveWs(null);
     isConnected = false;
     try {
       await voice.disconnect();
-      console.log('[Server] Voice session terminated successfully.');
-    } catch (err) {
-      console.error('[Server] Error during voice disconnect:', err);
+      logger.info('[Server] Voice session terminated successfully.');
+    } catch (err: any) {
+      logger.error('[Server] Error during voice disconnect:', err);
     }
   });
 });
 
 // Run the combined server
 server.listen(PORT, () => {
-  console.log(`[Server] Web application PoC server listening on http://localhost:${PORT}`);
+  logger.info(`[Server] Web application PoC server listening on http://localhost:${PORT}`);
 });
