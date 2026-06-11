@@ -24,6 +24,43 @@ This PoC moves the voice agent out of the terminal and into a stunning, responsi
 
 ---
 
+## 📜 Historie Verzí (Version History)
+
+Aplikace byla postupně rozvíjena od jednoduchého hlasového PoC až po plnohodnotný lékařský a diagnostický nástroj s firemní identitou:
+
+### 🔹 v0.1 — Hlasové PoC (Initial STS Voice Agent)
+* **Základní Speech-to-Speech (STS)** spojení s modelem Gemini 2.5 Flash přes WebSockets.
+* Prvotní zachytávání mikrofonu (16kHz PCM) a plynulé gapless přehrávání audia (24kHz PCM) přes WebAudio API.
+* Podpora okamžitého přerušení asistentky (Barge-in).
+
+### 🔹 v0.2 — Interaktivní UI & Integrace Nástrojů (Tool Cards)
+* Vytvoření interaktivního **glow vizualizátoru (Voice Assistant Orb)** dýchajícího v reálném čase podle aktivity a stavu řeči.
+* Live výpis přepisu konverzace do grafických chatovacích bublin.
+* Implementace prvního nástroje na serveru — **předpovědi počasí (`getWeather`)** s grafickým zobrazením výsledkové karty v chatu.
+
+### 🔹 v0.3 — Dynamická Konfigurace & Auris Visit Links
+* Možnost **změny barvy hlasu** asistentky (Puck, Aoede, Charon, Fenrir, Kore) za běhu sezení.
+* Interaktivní jezdec pro nastavení **kreativity modelu (Temperature)**.
+* Druhý simulovaný nástroj — **vytvoření návštěvy pacienta (`createAurisVisit`)**, který do chatu posílá elegantní klinické hluboké odkazy s dynamickými identifikátory.
+
+### 🔹 v0.4 — Zobrazení Myšlenkových Pochodů (Live Reasoning)
+* Separátní zachytávání interního uvažování modelu Gemini (Chain of Thought).
+* Vývoj **skládací monospace konzole** na pravém panelu, která v reálném čase streamuje myšlenkové kroky modelu ještě před započetím jeho řeči.
+
+### 🔹 v0.5 — Auris Scribe, Firemní UX & Observabilita (Aktuální verze)
+* **Režim "Auris Scribe":**
+  * Spouští se hlasovým příkazem *"Takže Dobrý den..."* – od té chvíle asistentka pouze naslouchá dialogu lékaře s pacientem a zapisuje real-time přepis včetně **diarizace mluvčích** (Lékař / Pacient) do dedikovaného panelu.
+  * Ukončuje se hlasovým příkazem *"Tak to je konec"*, načež asistentka vygeneruje a ukáže finální **strukturovanou lékařskou zprávu** (Medical Report) a přepne se zpět do konverzačního režimu.
+* **Přechod na firemní UX identitu (Auris One):**
+  * Kompletní změna designu z tmavého herního stylu na **medicínský Light Mode** podle vzoru `aurisone.com`.
+  * Integrace firemních fontů **`Open Sans`** a **`Outfit`**, a palety barev (teplý písek `#FAF7F4`, tmavá břidlicová navy `#394E71`, perleťová modř `#B5C5F4`).
+  * Elegantní redesign všech tool karet, argumentů, počasí a detailů návštěv do světlých, vysoce čitelných a luxusně stínovaných widgetů.
+* **Integrace Mastra Studio & Observability:**
+  * Přepsání konzolových výpisů na oficiální Mastra Logger.
+  * Statická registrace nástrojů pro bezproblémovou vizualizaci sezení a trasování chování agentů přímo v rozhraní **Mastra Studio** (port `4111`).
+
+---
+
 ## 🛠️ Technical Stack
 
 - **Backend**: Node.js, Express, WebSocket (`ws`), TypeScript (`tsc`, `tsx`), `dotenv`.
