@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { weatherTool, createAurisVisitTool } from './tools.js';
 import { aurisSystemPrompt } from '../prompt.js';
 import { GeminiLiveVoice } from '@mastra/voice-google-gemini-live';
+import crypto from 'crypto';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,27 +47,179 @@ if (!observabilityStore) {
   throw new Error('LibSQLStore observability storage is not initialized');
 }
 
-// A minimal, robust Proxy wrapper to intercept unsupported OLAP methods in LibSQLStore
-// and return safe default values, completely preventing 500 errors in Mastra Studio.
+// Create a robust Proxy wrapper for LibSQL observability to safely intercept
+// unsupported OLAP features (metrics, entity discovery) and return safe default values,
+// while implementing a custom SQLite log store inside mastra_ai_logs.
 const proxiedObservability = new Proxy(observabilityStore, {
   get(target, prop, receiver) {
-    if (prop === 'listLogs') {
-      return async (args: any) => {
-        const page = args?.pagination?.page ?? 1;
-        const perPage = args?.pagination?.perPage ?? 50;
-        return {
-          logs: [],
-          pagination: {
-            total: 0,
-            page,
-            perPage,
-            hasMore: false,
-          },
-        };
+    if (prop === 'init') {
+      return async (...args: any[]) => {
+        const initFn = Reflect.get(target, prop, receiver);
+        if (typeof initFn === 'function') {
+          await (initFn as any).apply(target, args);
+        }
+        // Initialize our custom SQLite log table
+        await (persistentStore as any).client.execute(`
+          CREATE TABLE IF NOT EXISTS mastra_ai_logs (
+            logId TEXT PRIMARY KEY,
+            traceId TEXT,
+            spanId TEXT,
+            message TEXT NOT NULL,
+            level TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            serviceName TEXT,
+            environment TEXT,
+            data TEXT,
+            metadata TEXT,
+            createdAt TEXT DEFAULT CURRENT_TIMESTAMP
+          )
+        `);
       };
     }
     if (prop === 'batchCreateLogs') {
-      return async () => {};
+      return async (args: any) => {
+        const logs = args?.logs || [];
+        for (const log of logs) {
+          const logId = log.logId || crypto.randomUUID();
+          await (persistentStore as any).client.execute({
+            sql: `
+              INSERT OR REPLACE INTO mastra_ai_logs (
+                logId, traceId, spanId, message, level, timestamp, serviceName, environment, data, metadata
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `,
+            args: [
+              logId,
+              log.traceId || null,
+              log.spanId || null,
+              log.message,
+              log.level,
+              new Date(log.timestamp).toISOString(),
+              log.serviceName || null,
+              log.environment || null,
+              log.data ? JSON.stringify(log.data) : null,
+              log.metadata ? JSON.stringify(log.metadata) : null,
+            ],
+          });
+        }
+      };
+    }
+    if (prop === 'listLogs') {
+      return async (args: any) => {
+        console.log('[Mastra Observability Proxy] listLogs called with args:', JSON.stringify(args, null, 2));
+
+        // Mastra Studio pagination is 0-indexed. Safe handling prevents negative offsets which crash SQLite.
+        const page = args?.pagination?.page ?? 0;
+        const perPage = args?.pagination?.perPage ?? 50;
+        const offset = Math.max(0, page * perPage);
+
+        let sql = `SELECT * FROM mastra_ai_logs`;
+        const conditions: string[] = [];
+        const sqlArgs: any[] = [];
+
+        if (args?.filters?.traceId) {
+          conditions.push(`traceId = ?`);
+          sqlArgs.push(args.filters.traceId);
+        }
+        if (args?.filters?.spanId) {
+          conditions.push(`spanId = ?`);
+          sqlArgs.push(args.filters.spanId);
+        }
+        if (args?.filters?.serviceName) {
+          conditions.push(`serviceName = ?`);
+          sqlArgs.push(args.filters.serviceName);
+        }
+        if (args?.filters?.environment) {
+          conditions.push(`environment = ?`);
+          sqlArgs.push(args.filters.environment);
+        }
+        if (args?.filters?.level) {
+          if (Array.isArray(args.filters.level)) {
+            if (args.filters.level.length > 0) {
+              const placeholders = args.filters.level.map(() => '?').join(', ');
+              conditions.push(`level IN (${placeholders})`);
+              sqlArgs.push(...args.filters.level);
+            }
+          } else {
+            conditions.push(`level = ?`);
+            sqlArgs.push(args.filters.level);
+          }
+        }
+        if (args?.filters?.timestamp) {
+          const { start, end, startExclusive, endExclusive } = args.filters.timestamp;
+          if (start) {
+            const op = startExclusive ? '>' : '>=';
+            conditions.push(`timestamp ${op} ?`);
+            sqlArgs.push(new Date(start).toISOString());
+          }
+          if (end) {
+            const op = endExclusive ? '<' : '<=';
+            conditions.push(`timestamp ${op} ?`);
+            sqlArgs.push(new Date(end).toISOString());
+          }
+        }
+
+        if (conditions.length > 0) {
+          sql += ` WHERE ` + conditions.join(` AND `);
+        }
+
+        sql += ` ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
+        
+        // Exact copy of current arguments for count query before appending limit/offset
+        const countSqlArgs = [...sqlArgs];
+        
+        sqlArgs.push(perPage, offset);
+
+        let countSql = `SELECT COUNT(*) as total FROM mastra_ai_logs`;
+        if (conditions.length > 0) {
+          countSql += ` WHERE ` + conditions.join(` AND `);
+        }
+
+        try {
+          const countRes = await (persistentStore as any).client.execute({
+            sql: countSql,
+            args: countSqlArgs,
+          });
+          const total = Number(countRes.rows[0]?.total ?? 0);
+
+          const res = await (persistentStore as any).client.execute({ sql, args: sqlArgs });
+
+          const logs = res.rows.map((row: any) => ({
+            logId: row.logId,
+            traceId: row.traceId,
+            spanId: row.spanId,
+            message: row.message,
+            level: row.level,
+            timestamp: new Date(row.timestamp),
+            serviceName: row.serviceName,
+            environment: row.environment,
+            data: row.data ? JSON.parse(row.data) : null,
+            metadata: row.metadata ? JSON.parse(row.metadata) : null,
+          }));
+
+          console.log(`[Mastra Observability Proxy] listLogs returning ${logs.length} logs of ${total} total`);
+
+          return {
+            logs,
+            pagination: {
+              total,
+              page,
+              perPage,
+              hasMore: offset + logs.length < total,
+            },
+          };
+        } catch (err: any) {
+          console.error('[Mastra Observability Proxy] listLogs error:', err);
+          return {
+            logs: [],
+            pagination: {
+              total: 0,
+              page,
+              perPage,
+              hasMore: false,
+            },
+          };
+        }
+      };
     }
     if (prop === 'getEntityNames') {
       return async () => ({ names: [] });
