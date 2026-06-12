@@ -7,9 +7,9 @@ import path from 'path';
 import { aurisSystemPrompt } from './prompt.js';
 
 // Import Mastra components and tools
-import { mastra } from './mastra/index.js';
+import { mastra, aurisAgent } from './mastra/index.js';
 import { setActiveWs } from './mastra/session.js';
-import { weatherTool, createAurisVisitTool, setToolsLogger } from './mastra/tools.js';
+import { setToolsLogger } from './mastra/tools.js';
 
 // Load environment variables from .env file
 dotenv.config();
@@ -54,6 +54,12 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// Get the default observability instance from Mastra
+const telemetryInstance = mastra.observability.getDefaultInstance();
+if (!telemetryInstance) {
+  throw new Error('Telemetry instance is not initialized on Mastra');
+}
+
 // Manage active WebSocket clients and their respective Gemini Live Voice connections
 wss.on('connection', async (ws: WebSocket, req) => {
   const requestUrl = new URL(req.url || '', 'http://localhost');
@@ -64,34 +70,37 @@ wss.on('connection', async (ws: WebSocket, req) => {
   // Set the active WebSocket session for tools to publish updates
   setActiveWs(ws);
 
-  logger.info(`[Server] New client connected. Spawning voice agent session with speaker: ${speaker}, temperature: ${temperature}...`);
-
-  // Initialize a dedicated Gemini Live Voice instance for this client
-  const voice = new GeminiLiveVoice({
-    vertexAI: true,
-    project,
-    location,
-    model: 'gemini-live-2.5-flash-native-audio' as any,
-    speaker: speaker, // Set the speaker initially based on client preference
-    instructions: aurisSystemPrompt,
-    temperature: isNaN(temperature) ? 0.1 : temperature,
-    debug: true,
-  } as any) as any;
-
-  // Add the tools and enforce instructions
-  voice.addTools({
-    getWeather: weatherTool,
-    createAurisVisit: createAurisVisitTool,
+  // Start a manual Span for this connection session
+  const span = telemetryInstance.startSpan({
+    name: 'Auris Voice Session',
+    type: 'GENERIC' as any,
   });
-  voice.addInstructions(aurisSystemPrompt);
+  const contextLogger = (telemetryInstance as any).getLoggerContext(span);
+
+  contextLogger.info(`[Server] New client connected. Spawning voice agent session with speaker: ${speaker}, temperature: ${temperature}...`);
+
+  // Retrieve the pre-configured GeminiLiveVoice from our Mastra aurisAgent
+  const voice = (aurisAgent as any).voice;
+
+  // Dynamically update speaker/temperature based on client search params
+  if (voice.updateSessionConfig) {
+    try {
+      await voice.updateSessionConfig({
+        speaker: speaker,
+        temperature: isNaN(temperature) ? 0.1 : temperature,
+      });
+    } catch (err) {
+      contextLogger.warn('[Server] Could not update session configuration:', err);
+    }
+  }
 
   let isConnected = false;
 
   try {
-    logger.info('[Server] Connecting to Gemini Live API...');
+    contextLogger.info('[Server] Connecting to Gemini Live API...');
     await voice.connect();
     isConnected = true;
-    logger.info('[Server] Connected successfully to Gemini Live API!');
+    contextLogger.info('[Server] Connected successfully to Gemini Live API!');
 
     // Notify client that the voice session is connected and ready
     ws.send(JSON.stringify({
@@ -101,11 +110,11 @@ wss.on('connection', async (ws: WebSocket, req) => {
     }));
 
     // Start speaking an initial welcome greeting
-    logger.info('[Server] Speaking initial greeting...');
+    contextLogger.info('[Server] Speaking initial greeting...');
     await voice.speak('Ahoj! Jsem Auris One, tvá inteligentní tichá zapisovatelka a AI asistentka. Jak ti mohu dnes pomoct?');
 
   } catch (error: any) {
-    logger.error('[Server] Failed to connect to Gemini Live API:', error);
+    contextLogger.error('[Server] Failed to connect to Gemini Live API:', error);
     ws.send(JSON.stringify({
       type: 'error',
       message: 'Failed to connect to Vertex AI: ' + (error.message || error),
@@ -131,7 +140,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
   voice.on('writing', ({ text, role }: any) => {
     if (text && text.trim() && ws.readyState === WebSocket.OPEN) {
       // Log transcript to Mastra logger so it's fully inspectable in Mastra Studio
-      logger.info(`[Voice Transcript] ${role}: ${text}`);
+      contextLogger.info(`[Voice Transcript] ${role}: ${text}`);
       ws.send(JSON.stringify({
         type: 'transcript',
         text,
@@ -143,7 +152,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
   // 3. Chain of Thought / Reasoning reasoning text
   voice.on('thinking', ({ text }: any) => {
     if (text && text.trim() && ws.readyState === WebSocket.OPEN) {
-      logger.info(`[Voice Thinking] ${text}`);
+      contextLogger.info(`[Voice Thinking] ${text}`);
       ws.send(JSON.stringify({
         type: 'thinking',
         text,
@@ -153,7 +162,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
   // 4. Interrupts (Barge-in: client spoke over the assistant)
   voice.on('interrupt', (data: any) => {
-    logger.info('[Server] User interrupted assistant speaking!');
+    contextLogger.info('[Server] User interrupted assistant speaking!');
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         type: 'interrupt',
@@ -174,7 +183,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
   // 6. Voice Errors
   voice.on('error', (err: any) => {
-    logger.error('[Server] Gemini Live Voice Error:', err);
+    contextLogger.error('[Server] Gemini Live Voice Error:', err);
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         type: 'error',
@@ -185,7 +194,7 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
   // 7. Tool calls (model decided to invoke an external skill)
   voice.on('toolCall', (data: any) => {
-    logger.info(`[Server] Model requested tool: ${data.name}`, data.args);
+    contextLogger.info(`[Server] Model requested tool: ${data.name}`, data.args);
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         type: 'tool_call',
@@ -213,34 +222,38 @@ wss.on('connection', async (ws: WebSocket, req) => {
       } else {
         // Handle incoming JSON text messages
         const data = JSON.parse(message.toString());
-        logger.info('[Server] Received command:', data);
+        contextLogger.info('[Server] Received command:', data);
 
         if (data.type === 'config' && data.speaker) {
-          logger.info(`[Server] Speaker config requested: ${data.speaker} (reconnecting client will handle this instead of updateSessionConfig)`);
+          contextLogger.info(`[Server] Speaker config requested: ${data.speaker} (reconnecting client will handle this instead of updateSessionConfig)`);
           ws.send(JSON.stringify({
             type: 'config_success',
             speaker: data.speaker,
           }));
         } else if (data.type === 'speak' && data.text) {
-          logger.info(`[Server] Client forced TTS: "${data.text}"`);
+          contextLogger.info(`[Server] Client forced TTS: "${data.text}"`);
           await voice.speak(data.text);
         }
       }
     } catch (err: any) {
-      logger.error('[Server] Error handling client WebSocket message:', err);
+      contextLogger.error('[Server] Error handling client WebSocket message:', err);
     }
   });
 
   // Clean up Mastra session on socket close
   ws.on('close', async () => {
-    logger.info('[Server] Client disconnected. Terminating voice session...');
+    contextLogger.info('[Server] Client disconnected. Terminating voice session...');
     setActiveWs(null);
     isConnected = false;
     try {
       await voice.disconnect();
-      logger.info('[Server] Voice session terminated successfully.');
+      contextLogger.info('[Server] Voice session terminated successfully.');
     } catch (err: any) {
-      logger.error('[Server] Error during voice disconnect:', err);
+      contextLogger.error('[Server] Error during voice disconnect:', err);
+    } finally {
+      // Ensure the manual Span is ended and telemetry is pushed immediately to SQLite
+      span.end();
+      await telemetryInstance.flush();
     }
   });
 });
