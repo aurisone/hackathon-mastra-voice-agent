@@ -205,6 +205,20 @@ wss.on('connection', async (ws: WebSocket, req) => {
     }
   });
 
+  // 8. Model usage statistics (cumulative session token metrics)
+  voice.on('usage', (usage: any) => {
+    contextLogger.info(`[Server] Model usage update: Input=${usage.inputTokens}, Output=${usage.outputTokens}, Total=${usage.totalTokens}`);
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'usage',
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        totalTokens: usage.totalTokens,
+        modality: usage.modality,
+      }));
+    }
+  });
+
   // --- Register inbound socket messages from client ---
   ws.on('message', async (message: Buffer, isBinary: boolean) => {
     try {

@@ -1132,6 +1132,55 @@ body {
     font-weight: 700;
 }
 
+.cost-display {
+    color: #10B981 !important; /* Elegant green for cost */
+    background: rgba(16, 185, 129, 0.12);
+    transition: background-color 0.3s ease, transform 0.2s ease;
+}
+
+.cost-display.updated {
+    transform: scale(1.05);
+    background: rgba(16, 185, 129, 0.25);
+}
+
+.usage-stats-container {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    background: rgba(57, 78, 113, 0.03);
+    border: 1px solid rgba(57, 78, 113, 0.08);
+    border-radius: 8px;
+    padding: 8px 12px;
+    margin-top: 4px;
+}
+
+.usage-stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+}
+
+.usage-stat-item:not(:last-child) {
+    border-right: 1px solid rgba(57, 78, 113, 0.1);
+}
+
+.usage-stat-label {
+    font-size: 9px !important;
+    color: var(--text-muted);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.usage-stat-value {
+    font-family: 'Fira Code', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-top: 2px;
+}
+
 .slider-container {
     width: 100%;
     padding: 4px 0;

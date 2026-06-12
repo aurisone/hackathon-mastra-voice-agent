@@ -17,6 +17,10 @@ const tempValueDisplay = document.getElementById('temperature-value');
 const chatBoard = document.getElementById('chat-board');
 const thinkingConsole = document.getElementById('thinking-console');
 const clearChatBtn = document.getElementById('clear-chat-btn');
+const sessionCostDisplay = document.getElementById('session-cost');
+const inputTokensDisplay = document.getElementById('input-tokens-display');
+const outputTokensDisplay = document.getElementById('output-tokens-display');
+const totalTokensDisplay = document.getElementById('total-tokens-display');
 
 // Audio Context & Streaming variables
 let audioContext = null;
@@ -177,6 +181,11 @@ async function startSession() {
                     handleToolResponse(msg.name, msg.args, msg.result);
                     break;
 
+                case 'usage':
+                    // Server returned token usage updates for the session
+                    handleUsageUpdate(msg);
+                    break;
+
                 case 'config_success':
                     console.log(`[WS] Speaker successfully updated to: ${msg.speaker}`);
                     break;
@@ -222,6 +231,12 @@ function closeSession() {
     
     currentUserBubble = null;
     currentAssistantBubble = null;
+
+    // Reset usage metrics on session close
+    if (inputTokensDisplay) inputTokensDisplay.innerText = '0';
+    if (outputTokensDisplay) outputTokensDisplay.innerText = '0';
+    if (totalTokensDisplay) totalTokensDisplay.innerText = '0';
+    if (sessionCostDisplay) sessionCostDisplay.innerText = '$0.000000';
 }
 
 // --- Audio Hardware Management (Web Audio API) ---
@@ -589,6 +604,38 @@ function createChatBubble(role, label) {
     `;
     
     return bubble;
+}
+
+// Handle WebSocket usage / token events and compute cost
+function handleUsageUpdate(data) {
+    const inputTokens = data.inputTokens || 0;
+    const outputTokens = data.outputTokens || 0;
+    const totalTokens = data.totalTokens || 0;
+
+    // Calculate cost based on Gemini 2.5 Flash pricing
+    // Input tokens: $0.075 per 1M tokens ($0.000000075 / token)
+    // Output tokens: $0.30 per 1M tokens ($0.00000030 / token)
+    const cost = (inputTokens * 0.000000075) + (outputTokens * 0.00000030);
+
+    // Update UI elements with formatted values
+    if (inputTokensDisplay) {
+        inputTokensDisplay.innerText = inputTokens;
+    }
+    if (outputTokensDisplay) {
+        outputTokensDisplay.innerText = outputTokens;
+    }
+    if (totalTokensDisplay) {
+        totalTokensDisplay.innerText = totalTokens;
+    }
+    if (sessionCostDisplay) {
+        sessionCostDisplay.innerText = `$${cost.toFixed(6)}`;
+        
+        // Visual feedback trigger (pulse glow) when values update
+        sessionCostDisplay.classList.add('updated');
+        setTimeout(() => {
+            sessionCostDisplay.classList.remove('updated');
+        }, 300);
+    }
 }
 
 // Live reasoning (Chain of Thought) logger
