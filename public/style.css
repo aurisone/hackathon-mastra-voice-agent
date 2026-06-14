@@ -1526,3 +1526,380 @@ body {
     100% { box-shadow: 0 0 45px rgba(255, 188, 176, 0.8); transform: scale(1.1); }
 }
 
+
+/* ============================================================================ */
+/* Auris Scribe & SOAP Side-by-Side Dashboard (v0.11)                           */
+/* ============================================================================ */
+
+.scribe-container-row {
+    display: flex;
+    flex-direction: row;
+    gap: 20px;
+    width: 100%;
+    height: calc(100vh - 120px);
+    margin-bottom: 24px;
+    animation: slide-down-scribe 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes slide-down-scribe {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.scribe-container-row .scribe-card,
+.scribe-container-row .soap-card {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    margin-bottom: 0 !important; /* Override any bottom margin */
+    min-width: 0; /* Prevent flex overflow */
+}
+
+/* Scribe Card Adjustments */
+.scribe-card {
+    border: 1px solid rgba(181, 197, 244, 0.3) !important;
+    box-shadow: 0 8px 32px rgba(181, 197, 244, 0.05) !important;
+}
+
+.scribe-body {
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 16px;
+}
+
+/* SOAP Card Styling */
+.soap-card {
+    border: 1px solid rgba(181, 197, 244, 0.35);
+    box-shadow: 0 8px 32px rgba(181, 197, 244, 0.08);
+    background-color: var(--bg-card);
+}
+
+.soap-header-icon {
+    font-size: 20px;
+    margin-right: 8px;
+}
+
+.soap-status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: rgba(57, 78, 113, 0.04);
+    padding: 4px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--border-glass);
+}
+
+.soap-status-dot {
+    width: 6px;
+    height: 6px;
+    background-color: var(--success);
+    border-radius: 50%;
+    box-shadow: 0 0 6px var(--success);
+}
+
+.soap-status-dot.pulsing {
+    animation: soap-pulse 1.5s infinite;
+}
+
+@keyframes soap-pulse {
+    0% { transform: scale(0.9); opacity: 0.6; box-shadow: 0 0 0 0 hsla(152, 42%, 52%, 0.7); }
+    70% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 0 4px hsla(152, 42%, 52%, 0); }
+    100% { transform: scale(0.9); opacity: 0.6; box-shadow: 0 0 0 0 hsla(152, 42%, 52%, 0); }
+}
+
+/* SOAP Tabs Navigation */
+.soap-tabs {
+    display: flex;
+    gap: 4px;
+    border-bottom: 1px solid var(--border-glass);
+    padding: 8px 16px;
+    background: rgba(57, 78, 113, 0.02);
+}
+
+.soap-tab-btn {
+    background: none;
+    border: none;
+    padding: 8px 14px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-muted);
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.soap-tab-btn:hover {
+    background: rgba(57, 78, 113, 0.05);
+    color: var(--text-main);
+}
+
+.soap-tab-btn.active {
+    background: var(--primary);
+    color: #FFFFFF;
+    box-shadow: 0 4px 12px var(--primary-glow);
+}
+
+/* SOAP Tab Content Panels */
+.soap-tab-content {
+    display: none;
+    flex-grow: 1;
+    overflow-y: auto;
+    padding: 20px;
+    min-height: 0;
+}
+
+.soap-tab-content.active {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Report Content Container */
+.soap-report-container {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.soap-empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    flex-grow: 1;
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 13px;
+    padding: 40px;
+    border: 1px dashed var(--border-glass);
+    border-radius: 8px;
+    background: rgba(57, 78, 113, 0.01);
+}
+
+/* Code Syntax Styling (Tab 2) */
+.soap-code-container {
+    margin: 0;
+    font-family: 'Fira Code', 'Courier New', monospace;
+    font-size: 12px;
+    background-color: #F8F5F1;
+    border: 1px solid var(--border-glass);
+    border-radius: 8px;
+    padding: 16px;
+    color: #4A5B79;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    flex-grow: 1;
+}
+
+/* Classification Coding Table (Tab 3) */
+.soap-codes-container {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    flex-grow: 1;
+}
+
+.coding-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px;
+    background-color: #FFFFFF;
+    border: 1px solid var(--border-glass);
+    border-radius: 8px;
+    box-shadow: var(--shadow-card);
+}
+
+.coding-entity-text {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: var(--text-main);
+    border-bottom: 1px solid rgba(57, 78, 113, 0.05);
+    padding-bottom: 6px;
+}
+
+.coding-systems {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+@media (max-width: 600px) {
+    .coding-systems {
+        grid-template-columns: 1fr;
+    }
+}
+
+.coding-badge-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    background-color: rgba(57, 78, 113, 0.02);
+    border: 1px solid rgba(57, 78, 113, 0.04);
+}
+
+.coding-badge-title {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+
+.coding-badge-code {
+    font-family: 'Fira Code', monospace;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--primary);
+}
+
+.coding-badge-display {
+    font-size: 12px;
+    color: var(--text-main);
+}
+
+.coding-badge-null {
+    font-size: 12px;
+    color: var(--text-muted);
+    font-style: italic;
+}
+
+/* ============================================================================ */
+/* HTML Medical Report Content Rendering                                        */
+/* ============================================================================ */
+
+.medical-report-card {
+    display: flex;
+    flex-direction: column;
+    background-color: #FFFFFF;
+    border: 1px solid rgba(57, 78, 113, 0.1);
+    border-radius: 12px;
+    padding: 24px;
+    gap: 20px;
+    box-shadow: 0 4px 20px rgba(57, 78, 113, 0.03);
+    font-family: 'Open Sans', sans-serif;
+    text-align: left;
+}
+
+.medical-report-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid var(--border-glass);
+    padding-bottom: 12px;
+}
+
+.medical-report-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-main);
+}
+
+.medical-report-badge {
+    background-color: var(--primary-glow);
+    color: var(--primary);
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 12px;
+    border: 1px solid var(--border-glass);
+}
+
+.medical-report-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    background-color: rgba(57, 78, 113, 0.02);
+    border: 1px solid var(--border-glass);
+    border-radius: 8px;
+    padding: 12px 16px;
+}
+
+@media (max-width: 500px) {
+    .medical-report-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.medical-report-section-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-main);
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.medical-report-section-content {
+    font-size: 13px;
+    color: var(--text-main);
+    line-height: 1.6;
+}
+
+.medical-report-section.full-width {
+    grid-column: span 2;
+    border-top: 1px solid rgba(57, 78, 113, 0.05);
+    padding-top: 14px;
+}
+
+.medical-report-section.full-width:first-of-type {
+    border-top: none;
+    padding-top: 0;
+}
+
+.medical-report-section-content ul {
+    margin-left: 20px;
+    margin-top: 6px;
+}
+
+.medical-report-section-content li {
+    margin-bottom: 4px;
+}
+
+.visit-meta {
+    font-size: 11px;
+    color: var(--text-muted);
+    background-color: rgba(181, 197, 244, 0.05);
+    border-left: 3px solid var(--secondary);
+    padding: 10px 14px;
+    border-radius: 0 8px 8px 0;
+    line-height: 1.5;
+}
+
+/* CSS Transition for real-time updates */
+.soap-card-updated-glow {
+    animation: update-glow 0.8s ease-out;
+}
+
+@keyframes update-glow {
+    0% { border-color: var(--secondary); box-shadow: 0 0 15px var(--secondary-glow); }
+    100% { border-color: rgba(181, 197, 244, 0.35); box-shadow: 0 8px 32px rgba(181, 197, 244, 0.08); }
+}
+
+/* Responsiveness media queries for Scribe container row */
+@media (max-width: 1024px) {
+    .scribe-container-row {
+        flex-direction: column;
+        height: auto;
+    }
+    
+    .scribe-card, .soap-card {
+        height: 50vh !important;
+        max-height: 500px;
+    }
+}
+
+

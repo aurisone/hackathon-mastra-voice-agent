@@ -21,6 +21,7 @@ const sessionCostDisplay = document.getElementById('session-cost');
 const inputTokensDisplay = document.getElementById('input-tokens-display');
 const outputTokensDisplay = document.getElementById('output-tokens-display');
 const totalTokensDisplay = document.getElementById('total-tokens-display');
+const modeSelect = document.getElementById('mode-select');
 
 // Audio Context & Streaming variables
 let audioContext = null;
@@ -44,6 +45,13 @@ let isScribeModeActive = false;
 let lastScribeSpeaker = 'patient'; // patient starts, so doctor is classified first unless overridden
 let activeScribeBubble = null;
 let scribeHistory = [];
+let scribeEndTimer = null;
+let userEndTimer = null;
+
+// SOAP & Scribe (v0.11) state variables
+let lastSoapHtml = '';
+let lastSoapFhir = { conditions: [], observations: [], medications: [] };
+let lastSoapCodes = [];
 
 
 // Initialize Web Socket Connection
@@ -112,7 +120,11 @@ async function startSession() {
                 case 'session':
                     console.log('[WS] Voice session connected to Gemini Live!');
                     updateStatus('CONNECTED', 'connected');
-                    setOrbState('idle', 'Připraven. Mluv...');
+                    if (modeSelect && modeSelect.value === 'scribe') {
+                        startScribeMode();
+                    } else {
+                        setOrbState('idle', 'Připraven. Mluv...');
+                    }
                     
                     // Sync is handled initially via WS query parameter
                     
@@ -147,27 +159,34 @@ async function startSession() {
                     if (msg.state === 'start') {
                         if (isScribeModeActive) {
                             setOrbState('recording', 'Auris Scribe nahrává...');
+                            if (scribeEndTimer) {
+                                clearTimeout(scribeEndTimer);
+                                scribeEndTimer = null;
+                            }
                         } else {
                             setOrbState('listening', 'Slyším tě...');
+                            if (userEndTimer) {
+                                clearTimeout(userEndTimer);
+                                userEndTimer = null;
+                            }
                         }
                         // Clear active assistant bubble when user starts new turn
                         currentAssistantBubble = null;
                     } else if (msg.state === 'end') {
                         if (isScribeModeActive) {
                             setOrbState('recording', 'Auris Scribe nahrává...');
-                            if (activeScribeBubble) {
-                                const speaker = activeScribeBubble.classList.contains('doctor') ? 'doctor' : 'patient';
-                                const text = activeScribeBubble.querySelector('.scribe-text').innerText;
-                                if (text && text.trim()) {
-                                    scribeHistory.push({ speaker, text });
-                                }
-                                activeScribeBubble = null;
-                            }
+                            // Debounce finalizing the scribe turn to ensure all final transcripts are fully processed
+                            if (scribeEndTimer) clearTimeout(scribeEndTimer);
+                            scribeEndTimer = setTimeout(finalizeScribeTurn, 1000); // 1-second debounce is ideal for final transcript safety
                         } else {
                             setOrbState('thinking', 'Přemýšlím...');
+                            // Debounce clearing user bubble so late transcripts don't split bubbles
+                            if (userEndTimer) clearTimeout(userEndTimer);
+                            userEndTimer = setTimeout(() => {
+                                currentUserBubble = null;
+                                userEndTimer = null;
+                            }, 1000);
                         }
-                        // Clear active user bubble when user finishes turn
-                        currentUserBubble = null;
                     }
                     break;
 
@@ -188,6 +207,23 @@ async function startSession() {
 
                 case 'config_success':
                     console.log(`[WS] Speaker successfully updated to: ${msg.speaker}`);
+                    break;
+
+                case 'soap_update':
+                    // Real-time medical report payload update from clinical agents (v0.11)
+                    handleSoapUpdate(msg.html, msg.fhir, msg.codes);
+                    break;
+
+                case 'soap_update_error':
+                    console.error('[SOAP] Error in real-time agent processing:', msg.message);
+                    const soapStatusText = document.getElementById('soap-status-text');
+                    if (soapStatusText) {
+                        soapStatusText.innerText = 'Chyba analýzy';
+                    }
+                    const soapStatusBadge = document.getElementById('soap-status-badge');
+                    if (soapStatusBadge) {
+                        soapStatusBadge.style.color = 'var(--error)';
+                    }
                     break;
 
                 case 'error':
@@ -231,6 +267,16 @@ function closeSession() {
     
     currentUserBubble = null;
     currentAssistantBubble = null;
+    activeScribeBubble = null;
+
+    if (scribeEndTimer) {
+        clearTimeout(scribeEndTimer);
+        scribeEndTimer = null;
+    }
+    if (userEndTimer) {
+        clearTimeout(userEndTimer);
+        userEndTimer = null;
+    }
 
     // Reset usage metrics on session close
     if (inputTokensDisplay) inputTokensDisplay.innerText = '0';
@@ -511,6 +557,34 @@ function modulateVisuals(volume, state) {
     }
 }
 
+// Robust Czech phrase matching helpers for Scribe Mode triggers
+function normalizeCzechText(txt) {
+    if (!txt) return '';
+    return txt.toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // strip diacritics (accents)
+        .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]/g, "") // strip punctuation
+        .replace(/\s+/g, " ") // collapse multiple spaces
+        .trim();
+}
+
+function shouldStartScribeMode(text) {
+    const clean = normalizeCzechText(text);
+    return clean.includes("takze dobry den") || 
+           clean.includes("takze dobri den") || 
+           clean.includes("tak dobry den") || 
+           clean.includes("dobry den takze");
+}
+
+function shouldEndScribeMode(text) {
+    const clean = normalizeCzechText(text);
+    return clean.includes("tak to je konec") || 
+           clean.includes("takto je konec") || 
+           clean.includes("konec nahravani") || 
+           clean.includes("konec rozhovoru") ||
+           clean.includes("ukoncit nahravani");
+}
+
 // Live dialogue transcription rendering
 function handleTranscriptUpdate(role, text) {
     // If it's system/first load, remove boilerplate text
@@ -524,12 +598,26 @@ function handleTranscriptUpdate(role, text) {
         }
         
         if (role === 'user') {
-            const textLower = text.toLowerCase().trim();
-            if (textLower.includes('tak to je konec') || textLower.startsWith('tak to je konec')) {
+            // Start or reset scribe end timer since user transcript is actively updating
+            if (scribeEndTimer) {
+                clearTimeout(scribeEndTimer);
+            }
+            scribeEndTimer = setTimeout(finalizeScribeTurn, 2000);
+
+            if (shouldEndScribeMode(text)) {
                 let cleanText = text;
-                const endIdx = textLower.indexOf('tak to je konec');
-                if (endIdx !== -1) {
-                    cleanText = text.substring(0, endIdx).trim();
+                const textLower = text.toLowerCase();
+                const endKeywords = [
+                    'tak to je konec', 'tak to je konec.', 'tak, to je konec', 
+                    'konec nahrávání', 'konec nahravani', 'konec rozhovoru', 
+                    'ukončit nahrávání', 'ukoncit nahravani'
+                ];
+                for (const kw of endKeywords) {
+                    const endIdx = textLower.indexOf(kw);
+                    if (endIdx !== -1) {
+                        cleanText = text.substring(0, endIdx).trim();
+                        break;
+                    }
                 }
                 if (cleanText) {
                     if (!activeScribeBubble) {
@@ -564,8 +652,16 @@ function handleTranscriptUpdate(role, text) {
     }
 
     if (role === 'user') {
-        const textLower = text.toLowerCase().trim();
-        if (textLower.startsWith('takže dobrý den') || textLower.includes('takže dobrý den')) {
+        // Start or reset user end timer since user transcript is actively updating
+        if (userEndTimer) {
+            clearTimeout(userEndTimer);
+        }
+        userEndTimer = setTimeout(() => {
+            currentUserBubble = null;
+            userEndTimer = null;
+        }, 2000);
+
+        if (shouldStartScribeMode(text)) {
             startScribeMode();
             return;
         }
@@ -849,6 +945,15 @@ clearChatBtn.addEventListener('click', () => {
     currentAssistantBubble = null;
 });
 
+const manualEndScribeBtn = document.getElementById('manual-end-scribe-btn');
+if (manualEndScribeBtn) {
+    manualEndScribeBtn.addEventListener('click', () => {
+        if (isScribeModeActive) {
+            endScribeMode();
+        }
+    });
+}
+
 // Setup collapsible thinking card handler
 const thinkingHeader = document.getElementById('thinking-header');
 const thinkingCard = document.querySelector('.reasoning-card');
@@ -856,6 +961,36 @@ thinkingHeader.addEventListener('click', () => {
     thinkingCard.classList.toggle('collapsed');
     const body = document.getElementById('thinking-body');
     body.classList.toggle('hidden');
+});
+
+// Setup SOAP tab switching handlers (v0.11)
+document.addEventListener('DOMContentLoaded', () => {
+    // We register these listeners so that they hook into the DOM cleanly
+    const registerSoapTabs = () => {
+        const soapTabButtons = document.querySelectorAll('.soap-tab-btn');
+        soapTabButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                // Deactivate all tab buttons in this card
+                soapTabButtons.forEach(b => b.classList.remove('active'));
+                
+                // Hide all tab contents in the SOAP card
+                document.querySelectorAll('.soap-tab-content').forEach(content => {
+                    content.classList.remove('active');
+                });
+                
+                // Activate clicked button
+                btn.classList.add('active');
+                
+                // Show corresponding content panel
+                const targetTabId = btn.getAttribute('data-tab');
+                const targetPanel = document.getElementById(targetTabId);
+                if (targetPanel) {
+                    targetPanel.classList.add('active');
+                }
+            });
+        });
+    };
+    registerSoapTabs();
 });
 
 // --- Auris Scribe (Verze 0.5) Helpers ---
@@ -902,7 +1037,46 @@ function startScribeMode() {
     activeScribeBubble = null;
     scribeHistory = [];
 
-    // Clear and display Scribe card
+    if (scribeEndTimer) {
+        clearTimeout(scribeEndTimer);
+        scribeEndTimer = null;
+    }
+    if (userEndTimer) {
+        clearTimeout(userEndTimer);
+        userEndTimer = null;
+    }
+
+    lastSoapHtml = '';
+    lastSoapFhir = { conditions: [], observations: [], medications: [] };
+    lastSoapCodes = [];
+
+    // Clear report fields and show empty states
+    const reportContainer = document.getElementById('soap-report-container');
+    if (reportContainer) {
+        reportContainer.innerHTML = `
+            <div class="soap-empty-state">
+                <p>Zde se bude průběžně vytvářet strukturovaná zpráva ve formátu SOAP...</p>
+            </div>
+        `;
+    }
+    const fhirContainer = document.getElementById('soap-fhir-container');
+    if (fhirContainer) {
+        fhirContainer.innerText = '{}';
+    }
+    const codesContainer = document.getElementById('soap-codes-container');
+    if (codesContainer) {
+        codesContainer.innerHTML = `
+            <div class="soap-empty-state">
+                <p>Zde se zobrazí klasifikované kódy ICPC-2 a MKN-10...</p>
+            </div>
+        `;
+    }
+    const statusText = document.getElementById('soap-status-text');
+    if (statusText) {
+        statusText.innerText = 'Čekám na dialog...';
+    }
+
+    // Clear and display Scribe dialogue
     const scribeBody = document.getElementById('scribe-body');
     if (scribeBody) {
         scribeBody.innerHTML = `
@@ -912,12 +1086,19 @@ function startScribeMode() {
         `;
     }
     
-    const scribeCard = document.getElementById('scribe-card');
-    if (scribeCard) {
-        scribeCard.classList.remove('hidden');
+    // Hide standard chat & reasoning panels to focus on patient visit
+    const chatCard = document.querySelector('.chat-card');
+    const reasoningCard = document.querySelector('.reasoning-card');
+    if (chatCard) chatCard.classList.add('hidden');
+    if (reasoningCard) reasoningCard.classList.add('hidden');
+
+    // Show dual clinical Scribe & SOAP container
+    const scribeContainer = document.getElementById('scribe-container-row');
+    if (scribeContainer) {
+        scribeContainer.classList.remove('hidden');
     }
 
-    // Update voice orb visual state to "recording" (handled by our custom CSS)
+    // Update voice orb visual state to "recording"
     setOrbState('recording', 'Auris Scribe aktivní — Poslouchám rozhovor...');
     voiceOrb.classList.add('recording');
 
@@ -930,22 +1111,20 @@ function endScribeMode() {
     isScribeModeActive = false;
     
     // Save any active bubble to history before ending
-    if (activeScribeBubble) {
-        const speaker = activeScribeBubble.classList.contains('doctor') ? 'doctor' : 'patient';
-        const text = activeScribeBubble.querySelector('.scribe-text').innerText;
-        if (text && text.trim()) {
-            scribeHistory.push({ speaker, text });
-        }
-        activeScribeBubble = null;
-    }
+    finalizeScribeTurn();
 
-    // Hide scribe card and restore orb classes
-    const scribeCard = document.getElementById('scribe-card');
-    if (scribeCard) {
-        scribeCard.classList.add('hidden');
+    // Hide Scribe container row and restore normal chat layout
+    const scribeContainer = document.getElementById('scribe-container-row');
+    if (scribeContainer) {
+        scribeContainer.classList.add('hidden');
     }
+    const chatCard = document.querySelector('.chat-card');
+    const reasoningCard = document.querySelector('.reasoning-card');
+    if (chatCard) chatCard.classList.remove('hidden');
+    if (reasoningCard) reasoningCard.classList.remove('hidden');
+
     voiceOrb.classList.remove('recording');
-    setOrbState('thinking', 'Připravuji lékařskou zprávu...');
+    setOrbState('thinking', 'Zpracovávám lékařskou zprávu...');
 
     // Play tactical sound effect
     playSynthesizedChime('stop');
@@ -956,21 +1135,22 @@ function endScribeMode() {
     loadingCard.id = 'scribe-loading-card';
     loadingCard.innerHTML = `
         <div class="scribe-loading-spinner"></div>
-        <div class="scribe-loading-text">Generuji strukturovanou lékařskou zprávu...</div>
+        <div class="scribe-loading-text">Finalizuji lékařskou zprávu pomocí AI agentů...</div>
     `;
     chatBoard.appendChild(loadingCard);
     chatBoard.scrollTop = chatBoard.scrollHeight;
 
-    // Simulate clinical drafting process
+    // Wait 2.5 seconds to receive the final update from the sequential clinical pipeline,
+    // then display the real formatted HTML SOAP report!
     setTimeout(() => {
         // Remove loading card
         const cardToRemove = document.getElementById('scribe-loading-card');
         if (cardToRemove) cardToRemove.remove();
 
-        // Generate report and append
-        const reportHTML = generateMedicalReport(scribeHistory);
+        // Use the actual generated HTML, fallback if not ready or empty
+        const finalHTML = lastSoapHtml || generateMedicalReport(scribeHistory);
         const reportWrapper = document.createElement('div');
-        reportWrapper.innerHTML = reportHTML;
+        reportWrapper.innerHTML = finalHTML;
         chatBoard.appendChild(reportWrapper);
         chatBoard.scrollTop = chatBoard.scrollHeight;
 
@@ -985,6 +1165,40 @@ function endScribeMode() {
             }));
         }
     }, 2500);
+}
+
+function finalizeScribeTurn() {
+    if (scribeEndTimer) {
+        clearTimeout(scribeEndTimer);
+        scribeEndTimer = null;
+    }
+    if (activeScribeBubble) {
+        const text = activeScribeBubble.querySelector('.scribe-text').innerText;
+        if (text && text.trim()) {
+            const finalSpeaker = diarizeSpeaker(text);
+            
+            // Update UI of the bubble to reflect the correct speaker
+            activeScribeBubble.className = `scribe-line ${finalSpeaker}`;
+            const labelSpan = activeScribeBubble.querySelector('.scribe-speaker');
+            if (labelSpan) {
+                labelSpan.className = `scribe-speaker ${finalSpeaker}`;
+                labelSpan.innerText = finalSpeaker === 'doctor' ? 'Lékař' : 'Pacient';
+            }
+            
+            scribeHistory.push({ speaker: finalSpeaker, text });
+            
+            // Trigger real-time clinical agent pipeline over WS! (v0.11)
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'scribe_update', history: scribeHistory }));
+                
+                const soapStatusText = document.getElementById('soap-status-text');
+                if (soapStatusText) {
+                    soapStatusText.innerText = 'Zpracovávám...';
+                }
+            }
+        }
+        activeScribeBubble = null;
+    }
 }
 
 function diarizeSpeaker(text) {
@@ -1113,4 +1327,108 @@ function generateMedicalReport(history) {
         </div>
     `;
 }
+
+// Render real-time clinical SOAP updates from Mastra multi-agent pipeline (v0.11)
+function handleSoapUpdate(html, fhir, codes) {
+    console.log('[SOAP] Processing live multi-agent update...', {
+        hasHtml: !!html,
+        fhirConditions: fhir?.conditions?.length || 0,
+        codings: codes?.length || 0
+    });
+
+    // Cache latest state
+    lastSoapHtml = html || '';
+    lastSoapFhir = fhir || { conditions: [], observations: [], medications: [] };
+    lastSoapCodes = codes || [];
+
+    // 1. Render beautiful HTML report draft
+    const reportContainer = document.getElementById('soap-report-container');
+    if (reportContainer && lastSoapHtml) {
+        reportContainer.innerHTML = lastSoapHtml;
+    }
+
+    // 2. Format and render FHIR R4 JSON Payload
+    const fhirContainer = document.getElementById('soap-fhir-container');
+    if (fhirContainer) {
+        fhirContainer.innerText = JSON.stringify(lastSoapFhir, null, 2);
+    }
+
+    // 3. Build medical coding badges dynamically
+    const codesContainer = document.getElementById('soap-codes-container');
+    if (codesContainer) {
+        if (lastSoapCodes.length === 0) {
+            codesContainer.innerHTML = `
+                <div class="soap-empty-state">
+                    <p>Zde se zobrazí klasifikované kódy ICPC-2 a MKN-10...</p>
+                </div>
+            `;
+        } else {
+            codesContainer.innerHTML = '';
+            lastSoapCodes.forEach(item => {
+                const row = document.createElement('div');
+                row.className = 'coding-row';
+
+                let icpcHtml = '';
+                if (item.icpc2) {
+                    icpcHtml = `
+                        <div class="coding-badge-wrapper">
+                            <span class="coding-badge-title">ICPC-2 Standard</span>
+                            <span class="coding-badge-code">${item.icpc2.code}</span>
+                            <span class="coding-badge-display">${item.icpc2.display}</span>
+                        </div>
+                    `;
+                } else {
+                    icpcHtml = `
+                        <div class="coding-badge-wrapper">
+                            <span class="coding-badge-title">ICPC-2 Standard</span>
+                            <span class="coding-badge-null">Nenalezen kód pro primární péči</span>
+                        </div>
+                    `;
+                }
+
+                let icdHtml = '';
+                if (item.icd10) {
+                    icdHtml = `
+                        <div class="coding-badge-wrapper">
+                            <span class="coding-badge-title">MKN-10 (ICD-10)</span>
+                            <span class="coding-badge-code">${item.icd10.code}</span>
+                            <span class="coding-badge-display">${item.icd10.display}</span>
+                        </div>
+                    `;
+                } else {
+                    icdHtml = `
+                        <div class="coding-badge-wrapper">
+                            <span class="coding-badge-title">MKN-10 (ICD-10)</span>
+                            <span class="coding-badge-null">Nenalezena diagnostická shoda</span>
+                        </div>
+                    `;
+                }
+
+                row.innerHTML = `
+                    <div class="coding-entity-text">${item.entityText}</div>
+                    <div class="coding-systems">
+                        ${icpcHtml}
+                        ${icdHtml}
+                    </div>
+                `;
+                codesContainer.appendChild(row);
+            });
+        }
+    }
+
+    // 4. Update the card header badge and status
+    const statusText = document.getElementById('soap-status-text');
+    if (statusText) {
+        statusText.innerText = 'Zpráva připravena';
+    }
+
+    // 5. Trigger glowing visual confirmation effect
+    const soapCard = document.getElementById('soap-card');
+    if (soapCard) {
+        soapCard.classList.remove('soap-card-updated-glow');
+        void soapCard.offsetWidth; // Force reflow to allow animation reset
+        soapCard.classList.add('soap-card-updated-glow');
+    }
+}
+
 

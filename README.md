@@ -53,7 +53,7 @@ Aplikace byla postupně rozvíjena od jednoduchého hlasového PoC až po plnoho
 * Separátní zachytávání interního uvažování modelu Gemini (Chain of Thought).
 * Vývoj **skládací monospace konzole** na pravém panelu, která v reálném čase streamuje myšlenkové kroky modelu ještě před započetím jeho řeči.
 
-### 🔹 v0.5 — Auris Scribe, Firemní UX & Observabilita (Aktuální verze)
+### 🔹 v0.5 — Auris Scribe, Firemní UX & Observabilita
 * **Režim "Auris Scribe":**
   * Spouští se hlasovým příkazem *"Takže Dobrý den..."* – od té chvíle asistentka pouze naslouchá dialogu lékaře s pacientem a zapisuje real-time přepis včetně **diarizace mluvčích** (Lékař / Pacient) do dedikovaného panelu.
   * Ukončuje se hlasovým příkazem *"Tak to je konec"*, načež asistentka vygeneruje a ukáže finální **strukturovanou lékařskou zprávu** (Medical Report) a přepne se zpět do konverzačního režimu.
@@ -64,6 +64,39 @@ Aplikace byla postupně rozvíjena od jednoduchého hlasového PoC až po plnoho
 * **Integrace Mastra Studio & Observability:**
   * Přepsání konzolových výpisů na oficiální Mastra Logger.
   * Statická registrace nástrojů pro bezproblémovou vizualizaci sezení a trasování chování agentů přímo v rozhraní **Mastra Studio** (port `4111`).
+
+### 🔹 v0.6 — SQLite DB & Perzistence Stavů
+* **Mastra Studio Úložiště:** Přechod na SQLite databázi `mastra.db` pomocí `LibSQLStore` pro plně persistentní historii vláken, konfigurací a relací.
+* Bezpečné ignorování lokálních databázových souborů v `.gitignore`.
+
+### 🔹 v0.7 — Composite Storage & Analytika Metrik
+* Konfigurace `MastraCompositeStore` rozdělující domény úložiště: SQLite pro relace/vlákna/konfigurace a `InMemoryStore` pro real-time metriky a telemetrii.
+
+### 🔹 v0.8 & v0.9 — Vlastní SQLite Logovací Proxy & Trasování Relací
+* Vývoj inteligentní **JavaScript Proxy** nad LibSQL, která stínuje nepodporované analytické metody pro DuckDB a zabraňuje chybám v Mastra Studiu.
+* Vytvoření tabulky `mastra_ai_logs` v SQLite pro bezpečné ukládání logů napříč procesy.
+* Logování na úrovni relací (WebSockets) provázané s unikátními ID rozpětí (Spans).
+
+### 🔹 v0.10 — Real-time Počítadlo Tokenů & Ceny (Live Cost Counter)
+* Integrace serverového odběru `"usage"` metrik a odesílání statistik spotřeby přes WebSockets.
+* Přidání real-time panelu do webového rozhraní zobrazujícího spotřebu v tokenech (vstupní, výstupní, celkové) a odhadovanou cenu v USD v reálném čase.
+
+### 🔹 v0.11 & v0.12 — Real-time SOAP, FHIR Agenti & Diarizace
+* Vývoj tří specializovaných klinických agentů: **Extraction Agent** (extrakce informací do FHIR formátu), **Classification Agent** (kódování diagnóz podle ICPC-2 a MKN-10/MKCH-10) a **SOAP Agent** (sestavení strukturovaného zápisu v češtině do HTML).
+* Přidání záložek do rozhraní pro interaktivní přepínání mezi SOAP zápisem, FHIR strukturou a lékařskými kódy.
+* Vyřešení klientského souběhu a implementace robustní **debounced finalizace replik (turn-finalization)** s 1000ms zpožděním pro maximální přesnost diarizace.
+
+### 🔹 v0.13 — Nativní Mastra Workflows (clinicalWorkflow)
+* Převedení klinické pipeline z manuálních asynchronních volání na nativní **Mastra Workflow** (`clinicalWorkflow`).
+* Definice robustního DAGu složeného ze kroků `extractionStep`, `classificationStep` a `soapStep`, který se vizualizuje a detailně trasuje pod záložkou "Workflows" v Mastra Studiu.
+
+### 🔹 v0.14 & v0.15 — Oprava chyb zpětné vazby a klientského rozhraní
+* Vyřešení chyb typu "This storage provider does not support listing feedback" interceptem metod v Proxy.
+* Oprava chyb syntaxe v klientském JS (`public/app.js`), která způsobovala nefunkčnost tlačítek pro ruční ovládání nahrávání a ukončování sezení.
+
+### 🔹 v0.16 — Oprava Gemini Live STT na Vertex AI & Výchozí Konverzační Mód (Aktuální verze)
+* **Vertex AI Gemini Live STT Fix:** Implementace elegantního runtime monkey-patchingu na `voice.sendEvent` v backendu pro injektáž explicitních přepisových modelů (`models/gemini-2.0-flash-exp`). Tím se plně zprovoznilo Speech-to-Text v reálném čase v Scribe módu pod platformou GCP Vertex AI.
+* **Výchozí Konverzační Mód:** Aplikace je po spuštění automaticky přednastavena do **AI Asistent (Hlasová konverzace)** módu, což umožňuje okamžitou plynulou hlasovou interakci ihned po připojení bez nutnosti ručního přepínání.
 
 ---
 

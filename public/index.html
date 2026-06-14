@@ -92,6 +92,15 @@
                             </div>
                         </div>
                         <div class="settings-group">
+                            <label for="mode-select">Režim aplikace:</label>
+                            <div class="select-wrapper">
+                                <select id="mode-select" class="form-select">
+                                    <option value="assistant" selected>AI Asistent (Hlasová konverzace)</option>
+                                    <option value="scribe">Auris Scribe (Takže dobrý den)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="settings-group">
                             <label for="temperature-slider" class="flex-row-label">
                                 <span>Teplota (Kreativita):</span>
                                 <span id="temperature-value" class="value-display">0.1</span>
@@ -131,18 +140,70 @@
             <!-- Right Panel: Transcription Board & Live Reasoning Drawer -->
             <section class="panel-right">
                 
-                <!-- Auris Scribe Panel (Verze 0.5) -->
-                <div class="card scribe-card hidden" id="scribe-card">
-                    <div class="card-header">
-                        <div class="header-title">
-                            <span class="recording-indicator-dot pulsing"></span>
-                            <h2>Auris Scribe — Záznam návštěvy</h2>
+                <!-- Scribe container for Side-by-side layout during active scribe session (v0.11) -->
+                <div class="scribe-container-row hidden" id="scribe-container-row">
+                    <!-- Left: Dialogue transcript -->
+                    <div class="card scribe-card" id="scribe-card">
+                        <div class="card-header">
+                            <div class="header-title">
+                                <span class="recording-indicator-dot pulsing"></span>
+                                <h2>Auris Scribe — Rozhovor</h2>
+                            </div>
+                            <span class="badge-scribe">Nahrávání 🎙️</span>
                         </div>
-                        <span class="badge-scribe">Nahrávání aktivní 🎙️</span>
+                        <div id="scribe-body" class="scribe-body">
+                            <div class="scribe-placeholder">
+                                <p>Rozhovor se bude zapisovat sem v reálném čase...</p>
+                            </div>
+                        </div>
+                        <div class="scribe-footer" style="padding: 1rem; border-top: 1px solid rgba(255,255,255,0.06); display: flex; justify-content: flex-end; background: rgba(0,0,0,0.15);">
+                            <button id="manual-end-scribe-btn" class="btn btn-danger" style="padding: 0.5rem 1rem; font-size: 0.85rem; border-radius: 8px; width: auto; min-height: auto;">
+                                ⏹️ Ukončit a generovat SOAP
+                            </button>
+                        </div>
                     </div>
-                    <div id="scribe-body" class="scribe-body">
-                        <div class="scribe-placeholder">
-                            <p>Rozhovor lékaře s pacientem se bude zapisovat sem v reálném čase...</p>
+
+                    <!-- Right: Live SOAP Report -->
+                    <div class="card soap-card" id="soap-card">
+                        <div class="card-header">
+                            <div class="header-title">
+                                <span class="soap-header-icon">📋</span>
+                                <h2>Strukturovaná zpráva (SOAP)</h2>
+                            </div>
+                            <div class="soap-status-badge" id="soap-status-badge">
+                                <span class="soap-status-dot pulsing"></span>
+                                <span id="soap-status-text">Čekám na dialog...</span>
+                            </div>
+                        </div>
+                        
+                        <!-- Tabs Navigation -->
+                        <div class="soap-tabs">
+                            <button class="soap-tab-btn active" data-tab="soap-tab-report">Lékařská zpráva</button>
+                            <button class="soap-tab-btn" data-tab="soap-tab-fhir">FHIR R4 JSON</button>
+                            <button class="soap-tab-btn" data-tab="soap-tab-codes">Kódování (ICPC-2/MKN-10)</button>
+                        </div>
+
+                        <!-- Tab Content 1: Czech SOAP Report -->
+                        <div class="soap-tab-content active" id="soap-tab-report">
+                            <div id="soap-report-container" class="soap-report-container">
+                                <div class="soap-empty-state">
+                                    <p>Zde se bude průběžně vytvářet strukturovaná zpráva ve formátu SOAP...</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tab Content 2: FHIR R4 JSON -->
+                        <div class="soap-tab-content" id="soap-tab-fhir">
+                            <pre id="soap-fhir-container" class="soap-code-container">{}</pre>
+                        </div>
+
+                        <!-- Tab Content 3: Codings -->
+                        <div class="soap-tab-content" id="soap-tab-codes">
+                            <div id="soap-codes-container" class="soap-codes-container">
+                                <div class="soap-empty-state">
+                                    <p>Zde se zobrazí klasifikované kódy ICPC-2 a MKN-10...</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

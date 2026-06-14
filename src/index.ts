@@ -8,7 +8,7 @@ import { aurisSystemPrompt } from './prompt.js';
 
 // Import Mastra components and tools
 import { mastra, aurisAgent } from './mastra/index.js';
-import { setActiveWs } from './mastra/session.js';
+import { setActiveWs, activeWs } from './mastra/session.js';
 import { setToolsLogger } from './mastra/tools.js';
 
 // Load environment variables from .env file
@@ -231,7 +231,15 @@ wss.on('connection', async (ws: WebSocket, req) => {
             message.byteOffset,
             message.byteLength / 2
           );
-          await voice.send(int16Array);
+          try {
+            await voice.send(int16Array);
+          } catch (sendErr: any) {
+            if (sendErr.message && sendErr.message.includes('Not connected')) {
+              isConnected = false;
+              contextLogger.info('[Server] Voice disconnected asynchronously. Disabling binary audio forwarding.');
+            }
+            throw sendErr;
+          }
         }
       } else {
         // Handle incoming JSON text messages
@@ -247,6 +255,47 @@ wss.on('connection', async (ws: WebSocket, req) => {
         } else if (data.type === 'speak' && data.text) {
           contextLogger.info(`[Server] Client forced TTS: "${data.text}"`);
           await voice.speak(data.text);
+        } else if (data.type === 'scribe_update') {
+          contextLogger.info(`[Server] Received scribe dialogue history update, turns: ${data.history?.length || 0}`);
+          const history = data.history || [];
+          
+          // Execute native Mastra Workflow asynchronously so as not to block WS thread
+          (async () => {
+            try {
+              const transcriptText = history
+                .map((item: any) => `${item.speaker === 'doctor' ? 'Lékař' : 'Pacient'}: ${item.text}`)
+                .join('\n');
+
+              contextLogger.info('[Server] Triggering native Mastra Workflow clinicalWorkflow...');
+              
+              const workflow = mastra.getWorkflow('clinicalWorkflow');
+              const run = await workflow.createRun();
+              const result = await run.start({ inputData: { transcriptText } });
+
+              if (result.status !== 'success') {
+                throw new Error(result.status === 'failed' ? (result.error?.message || 'Workflow execution failed') : `Workflow did not succeed: status is ${result.status}`);
+              }
+
+              const output = result.result as any;
+
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                  type: 'soap_update',
+                  html: output.html,
+                  fhir: output.fhir,
+                  codes: output.codes,
+                }));
+              }
+            } catch (pipelineErr: any) {
+              contextLogger.error('[Server] Scribe agent pipeline execution failed:', pipelineErr);
+              if (ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                  type: 'soap_update_error',
+                  message: pipelineErr.message || String(pipelineErr),
+                }));
+              }
+            }
+          })();
         }
       }
     } catch (err: any) {
@@ -256,18 +305,29 @@ wss.on('connection', async (ws: WebSocket, req) => {
 
   // Clean up Mastra session on socket close
   ws.on('close', async () => {
-    contextLogger.info('[Server] Client disconnected. Terminating voice session...');
-    setActiveWs(null);
-    isConnected = false;
+    contextLogger.info('[Server] Client disconnected. Cleaning up socket session...');
+    
+    // Check if this closing connection is the active session
+    if (activeWs === ws) {
+      contextLogger.info('[Server] Active connection closed. Terminating active voice session...');
+      setActiveWs(null);
+      isConnected = false;
+      try {
+        await voice.disconnect();
+        contextLogger.info('[Server] Voice session terminated successfully.');
+      } catch (err: any) {
+        contextLogger.error('[Server] Error during voice disconnect:', err);
+      }
+    } else {
+      contextLogger.info('[Server] closed old/superseded connection. Keeping newer session active.');
+    }
+
+    // Ensure the manual Span is ended and telemetry is pushed immediately to SQLite
+    span.end();
     try {
-      await voice.disconnect();
-      contextLogger.info('[Server] Voice session terminated successfully.');
-    } catch (err: any) {
-      contextLogger.error('[Server] Error during voice disconnect:', err);
-    } finally {
-      // Ensure the manual Span is ended and telemetry is pushed immediately to SQLite
-      span.end();
       await telemetryInstance.flush();
+    } catch (flushErr) {
+      // Ignore flush errors during rapid reconnects
     }
   });
 });

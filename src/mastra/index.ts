@@ -9,19 +9,28 @@ import { weatherTool, createAurisVisitTool } from './tools.js';
 import { aurisSystemPrompt } from '../prompt.js';
 import { GeminiLiveVoice } from '@mastra/voice-google-gemini-live';
 import crypto from 'crypto';
+import { clinicalExtractionAgent, clinicalClassificationAgent, clinicalSoapAgent } from './agents/clinical.js';
+import { clinicalWorkflow } from './workflows/clinical.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const dbPath = `file:${path.resolve(__dirname, '../../mastra.db')}`;
+
+import { createVertex } from '@ai-sdk/google-vertex';
+
+const vertex = createVertex({
+  project: process.env.GCP_PROJECT || 'auris-app-dev',
+  location: process.env.GCP_LOCATION || 'europe-west4',
+});
+
+const geminiModel = vertex('gemini-2.5-flash');
 
 // Define a dedicated Mastra Agent so it shows up beautifully inside Mastra Studio
 export const aurisAgent = new Agent({
   id: 'AurisOneAgent',
   name: 'Auris One Voice Agent',
   instructions: aurisSystemPrompt,
-  model: {
-    id: 'google/gemini-2.5-flash',
-  },
+  model: geminiModel,
   tools: {
     getWeather: weatherTool,
     createAurisVisit: createAurisVisitTool,
@@ -263,6 +272,36 @@ const proxiedObservability = new Proxy(observabilityStore, {
     if (prop === 'batchCreateMetrics') {
       return async () => {};
     }
+    if (prop === 'createFeedback') {
+      return async () => ({});
+    }
+    if (prop === 'batchCreateFeedback') {
+      return async () => {};
+    }
+    if (prop === 'listFeedback') {
+      return async () => ({
+        feedback: [],
+        pagination: {
+          total: 0,
+          page: 0,
+          perPage: 50,
+          hasMore: false,
+        },
+      });
+    }
+    if (prop === 'getFeedbackAggregate') {
+      return async () => ({ value: null });
+    }
+    if (prop === 'getFeedbackBreakdown') {
+      return async () => ({ groups: [] });
+    }
+    if (prop === 'getFeedbackTimeSeries') {
+      return async () => ({ series: [] });
+    }
+    if (prop === 'getFeedbackPercentiles') {
+      return async () => ({ series: [] });
+    }
+
 
     const value = Reflect.get(target, prop, receiver);
     if (typeof value === 'function') {
@@ -295,9 +334,15 @@ export const mastra = new Mastra({
   }),
   agents: {
     aurisAgent,
+    clinicalExtractionAgent,
+    clinicalClassificationAgent,
+    clinicalSoapAgent,
   },
   tools: {
     getWeather: weatherTool,
     createAurisVisit: createAurisVisitTool,
+  },
+  workflows: {
+    clinicalWorkflow,
   },
 });

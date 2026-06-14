@@ -10,6 +10,7 @@
     "build": "tsc"
   },
   "dependencies": {
+    "@ai-sdk/google-vertex": "^4.0.144",
     "@mastra/core": "^1.41.0",
     "@mastra/duckdb": "^1.4.1",
     "@mastra/libsql": "^1.12.1",
